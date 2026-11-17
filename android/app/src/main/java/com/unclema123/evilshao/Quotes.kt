@@ -18,6 +18,9 @@ class Quotes(context: Context) {
     var learner: Learner? = null
 
     val signatures = ArrayList<String>()
+
+    /** 她自己造出来的新句子，和原有语料一起参与抽取 */
+    val invented = ArrayList<String>()
     val rules = ArrayList<Rule>()
     val fallback = ArrayList<String>()
 
@@ -52,7 +55,7 @@ class Quotes(context: Context) {
         if (signatures.isEmpty()) signatures.add("……")
     }
 
-    fun randomSignature(): String = pick(signatures)
+    fun randomSignature(): String = pick(signatures + invented)
 
     fun reply(input: String): String {
         val text = input.trim()
@@ -74,7 +77,7 @@ class Quotes(context: Context) {
         val roll = Random.nextInt(100)
         val pool: List<String> = when {
             best != null && roll < 82 -> best.replies
-            roll < 91 -> signatures
+            roll < 91 -> signatures + invented
             else -> fallback
         }
         return pick(pool, text)

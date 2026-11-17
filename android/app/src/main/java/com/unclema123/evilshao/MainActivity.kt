@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.os.Handler
@@ -13,6 +14,7 @@ import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -29,9 +31,11 @@ class MainActivity : Activity() {
     private lateinit var quotes: Quotes
     private lateinit var chatLog: ChatLog
     private lateinit var learner: Learner
+    private lateinit var dreamer: Dreamer
 
     private val ui = Handler(Looper.getMainLooper())
     private var sinceTrain = 0
+    private var panelText: TextView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,6 +46,10 @@ class MainActivity : Activity() {
         learner = Learner(this)
         learner.load()
         quotes.learner = learner
+
+        dreamer = Dreamer(this)
+        dreamer.load()
+        quotes.invented.addAll(dreamer.invented)
 
         renderer = PigRenderer()
 
@@ -66,9 +74,7 @@ class MainActivity : Activity() {
         recordView.setOnClickListener { showHistory() }
         learnView.setOnClickListener { showLearner() }
 
-        // 启动时先按历史记录学一遍
         trainAsync(showToast = false)
-
         ui.postDelayed({ say("……你来啦。") }, 500)
     }
 
@@ -97,18 +103,36 @@ class MainActivity : Activity() {
         hideKeyboard()
     }
 
-    /** 后台线程重扫聊天记录、重算权重 */
+    /**
+     * 一轮「自学」：重算权重 + 造几条新句子。
+     * 新句子进候选池，之后靠学习权重自己淘汰或留下。
+     */
     private fun trainAsync(showToast: Boolean) {
         Thread {
             try {
                 learner.train(chatLog.entries())
-                ui.post {
-                    updateBadges()
-                    if (showToast) {
-                        Toast.makeText(this, "学完了：分析了 ${learner.analyzed} 条对话", Toast.LENGTH_SHORT).show()
-                    }
-                }
+
+                val known = HashSet<String>()
+                known.addAll(quotes.signatures)
+                known.addAll(quotes.fallback)
+                quotes.rules.forEach { known.addAll(it.replies) }
+                known.addAll(quotes.invented)
+                dreamer.grow(known, 2)
+
+                quotes.invented.clear()
+                quotes.invented.addAll(dreamer.invented)
             } catch (_: Exception) {
+            }
+            ui.post {
+                updateBadges()
+                panelText?.text = learnPanelText()
+                if (showToast) {
+                    Toast.makeText(
+                        this,
+                        "学完了：${learner.analyzed} 条对话，新句 ${quotes.invented.size} 句",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
         }.start()
     }
@@ -116,7 +140,13 @@ class MainActivity : Activity() {
     private fun updateBadges() {
         val n = chatLog.count()
         recordView.text = if (n > 0) "记录 $n" else "记录"
-        learnView.text = if (learner.analyzed > 0) "学习 ${learner.feedbacks}" else "学习"
+        learnView.text = if (quotes.invented.isNotEmpty()) {
+            "学习 ${learner.feedbacks}·新句 ${quotes.invented.size}"
+        } else if (learner.analyzed > 0) {
+            "学习 ${learner.feedbacks}"
+        } else {
+            "学习"
+        }
     }
 
     private fun say(text: String) {
@@ -132,6 +162,17 @@ class MainActivity : Activity() {
             .scaleY(1f)
             .setDuration(190)
             .start()
+    }
+
+    private fun learnPanelText(): String {
+        val sb = StringBuilder(learner.report())
+        sb.append("\n\n── 自己造的新句 ──\n")
+        if (quotes.invented.isEmpty()) {
+            sb.append("（还没有，点「再造几句」让她想想）")
+        } else {
+            quotes.invented.takeLast(10).forEach { sb.append("  ").append(it).append('\n') }
+        }
+        return sb.toString().trimEnd()
     }
 
     /** 聊天记录：翻看 / 分享 / 清空 */
@@ -161,7 +202,7 @@ class MainActivity : Activity() {
     private fun confirmClear() {
         AlertDialog.Builder(this)
             .setTitle("清空记录？")
-            .setMessage("所有聊天记录会被删除，无法恢复。\n\n注意：学习结果会保留，想一起清掉请用「学习 → 重置」。")
+            .setMessage("所有聊天记录会被删除，无法恢复。\n\n注意：学习结果和造出的新句会保留。")
             .setPositiveButton("清空") { _, _ ->
                 chatLog.clear()
                 updateBadges()
@@ -180,33 +221,86 @@ class MainActivity : Activity() {
         startActivity(Intent.createChooser(intent, "分享聊天记录"))
     }
 
-    /** 学习面板：看她学到了什么 */
+    /** 学习面板：她学到的东西 + 自己造的新句 */
     private fun showLearner() {
         val tv = TextView(this).apply {
-            text = learner.report()
+            text = learnPanelText()
             textSize = 13f
             setLineSpacing(8f, 1f)
-            setPadding(48, 36, 48, 36)
+            setPadding(48, 36, 48, 24)
             setTextIsSelectable(true)
         }
+        panelText = tv
         val sv = ScrollView(this).apply { addView(tv) }
+
+        fun mkButton(label: String): Button = Button(this).apply {
+            text = label
+            textSize = 13f
+            setBackgroundColor(Color.TRANSPARENT)
+            setTextColor(0xFF8C6A75.toInt())
+        }
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(24, 0, 24, 0)
+            addView(mkButton("学一次").apply {
+                setOnClickListener { trainAsync(showToast = true) }
+            })
+            addView(mkButton("再造几句").apply {
+                setOnClickListener { inventMore() }
+            })
+            addView(mkButton("重置").apply {
+                setOnClickListener { confirmResetLearning() }
+            })
+        }
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(sv, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+            ))
+            addView(row)
+        }
 
         AlertDialog.Builder(this)
             .setTitle("她学到的东西")
-            .setView(sv)
-            .setPositiveButton("学一次") { _, _ -> trainAsync(showToast = true) }
-            .setNeutralButton("重置") { _, _ -> confirmResetLearning() }
-            .setNegativeButton("关闭", null)
+            .setView(root)
+            .setNegativeButton("关闭") { _, _ -> panelText = null }
             .show()
+    }
+
+    /** 手动多造几句 */
+    private fun inventMore() {
+        Thread {
+            try {
+                val known = HashSet<String>()
+                known.addAll(quotes.signatures)
+                known.addAll(quotes.fallback)
+                quotes.rules.forEach { known.addAll(it.replies) }
+                known.addAll(quotes.invented)
+                dreamer.grow(known, 3)
+                quotes.invented.clear()
+                quotes.invented.addAll(dreamer.invented)
+            } catch (_: Exception) {
+            }
+            ui.post {
+                updateBadges()
+                panelText?.text = learnPanelText()
+            }
+        }.start()
     }
 
     private fun confirmResetLearning() {
         AlertDialog.Builder(this)
             .setTitle("重置学习？")
-            .setMessage("学到的东西全部清空，她会回到最初的状态。聊天记录不受影响。")
+            .setMessage("学到的权重和造出的新句全部清空，她会回到最初的状态。聊天记录不受影响。")
             .setPositiveButton("重置") { _, _ ->
                 learner.reset()
+                dreamer.invented.clear()
+                dreamer.save()
+                quotes.invented.clear()
                 updateBadges()
+                panelText?.text = learnPanelText()
                 Toast.makeText(this, "已重置", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("取消", null)
