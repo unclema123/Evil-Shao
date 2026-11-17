@@ -60,18 +60,54 @@ class ChatLog(context: Context) {
     }
 
     /** 给人看的纯文本，用于弹窗和分享 */
-    fun asText(): String {
+    fun asText(meName: String = "我", herName: String = "小猪"): String {
         val list = entries()
         if (list.isEmpty()) return ""
         val sb = StringBuilder()
         for (e in list) {
             sb.append(fmt.format(Date(e.time)))
             sb.append(' ')
-            sb.append(if (e.role == "我") "我：" else "小猪：")
+            sb.append(if (e.role == "我") meName else herName)
+            sb.append("：")
             sb.append(e.message)
             sb.append('\n')
         }
         return sb.toString()
+    }
+
+    /** 按天分组的对话，给弹窗用；同一天只显示一次日期 */
+    fun asTextGrouped(meName: String = "我", herName: String = "小猪"): String {
+        val list = entries()
+        if (list.isEmpty()) return ""
+        val dayFmt = SimpleDateFormat("MM-dd", Locale.CHINA)
+        val timeFmt = SimpleDateFormat("HH:mm", Locale.CHINA)
+        val sb = StringBuilder()
+        var lastDay = ""
+        for (e in list) {
+            val d = dayFmt.format(Date(e.time))
+            if (d != lastDay) {
+                if (lastDay.isNotEmpty()) sb.append('\n')
+                sb.append("── ").append(d).append(" ──\n")
+                lastDay = d
+            }
+            sb.append(timeFmt.format(Date(e.time)))
+            sb.append(' ')
+            sb.append(if (e.role == "我") meName else herName)
+            sb.append("：")
+            sb.append(e.message)
+            sb.append('\n')
+        }
+        return sb.toString()
+    }
+
+    /** 参与对话的人（去重），便于统计「两个人的对话」 */
+    fun participants(): Pair<Int, Int> {
+        var mine = 0
+        var hers = 0
+        for (e in entries()) {
+            if (e.role == "我") mine++ else hers++
+        }
+        return mine to hers
     }
 
     /** 会话文件路径，方便排查 */

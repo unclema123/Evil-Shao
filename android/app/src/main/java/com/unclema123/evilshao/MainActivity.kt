@@ -29,12 +29,14 @@ class MainActivity : Activity() {
     private lateinit var input: EditText
     private lateinit var recordView: TextView
     private lateinit var learnView: TextView
+    private lateinit var titleView: TextView
     private lateinit var renderer: PigRenderer
     private lateinit var quotes: Quotes
     private lateinit var chatLog: ChatLog
     private lateinit var learner: Learner
     private lateinit var dreamer: Dreamer
     private lateinit var llm: LlmClient
+    private lateinit var names: Names
 
     private val ui = Handler(Looper.getMainLooper())
     private var sinceTrain = 0
@@ -45,6 +47,7 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
 
         llm = LlmClient(this)
+        names = Names(this)
         quotes = Quotes(this)
         chatLog = ChatLog(this)
         learner = Learner(this)
@@ -66,7 +69,11 @@ class MainActivity : Activity() {
         input = findViewById(R.id.input)
         recordView = findViewById(R.id.record)
         learnView = findViewById(R.id.learn)
+        titleView = findViewById(R.id.title)
         val send = findViewById<Button>(R.id.send)
+
+        titleView.text = "${names.her} · 邵珠佳"
+        titleView.setOnClickListener { showNameSettings(firstRun = false) }
 
         gl.setOnTouchListener(TouchHandler())
 
@@ -79,6 +86,12 @@ class MainActivity : Activity() {
         learnView.setOnClickListener { showLearner() }
 
         trainAsync(showToast = false)
+
+        // 第一次进来先让他给自己起个名字
+        if (!names.configured) {
+            ui.postDelayed({ showNameSettings(firstRun = true) }, 900)
+        }
+
         ui.postDelayed({ say("……你来啦。") }, 500)
     }
 
@@ -219,9 +232,16 @@ class MainActivity : Activity() {
     }
 
     private fun showHistory() {
-        val body = chatLog.asText()
+        val (mine, hers) = chatLog.participants()
+        val total = mine + hers
+        val body = chatLog.asTextGrouped(names.me, names.her)
+        val head = if (total > 0) "${names.me} $mine 条 · ${names.her} $hers 条\n\n" else ""
         val tv = TextView(this).apply {
-            text = if (body.isEmpty()) "还没有任何记录。\n\n去和小猪说几句话再来。" else body
+            text = if (body.isEmpty()) {
+                "还没有任何记录。\n\n去找${names.her}说几句话再来。"
+            } else {
+                head + body
+            }
             textSize = 13f
             setLineSpacing(6f, 1f)
             setPadding(48, 36, 48, 36)
@@ -230,7 +250,7 @@ class MainActivity : Activity() {
         val sv = ScrollView(this).apply { addView(tv) }
 
         val builder = AlertDialog.Builder(this)
-            .setTitle("聊天记录 · ${chatLog.count()} 条")
+            .setTitle("聊天记录 · $total 条")
             .setView(sv)
             .setNegativeButton("关闭", null)
 
@@ -239,6 +259,64 @@ class MainActivity : Activity() {
             builder.setNeutralButton("清空") { _, _ -> confirmClear() }
         }
         builder.show()
+    }
+
+    /** 设置两个人的名字：点标题进来，或第一次启动时自动弹 */
+    private fun showNameSettings(firstRun: Boolean) {
+        val pad = (18 * resources.displayMetrics.density).toInt()
+
+        val etMe = EditText(this).apply {
+            setText(if (names.configured) names.me else "")
+            hint = "你的名字"
+            setSingleLine()
+        }
+        val etHer = EditText(this).apply {
+            setText(names.her)
+            hint = "她的名字"
+            setSingleLine()
+        }
+        val tip = TextView(this).apply {
+            text = if (firstRun) {
+                "聊天记录要分清谁在说话。给自己起个名字，以后点左上角标题就能改。"
+            } else {
+                "只影响聊天记录里显示的称呼，最多 12 个字。"
+            }
+            textSize = 11f
+            setTextColor(0xFF8C8C8C.toInt())
+            setPadding(0, 12, 0, 0)
+        }
+
+        fun label(text: String) = TextView(this).apply {
+            this.text = text
+            textSize = 12f
+            setTextColor(0xFF8C6A75.toInt())
+        }
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, 0)
+            addView(label("机主名字（你）"))
+            addView(etMe)
+            addView(label("小猪的名字"))
+            addView(etHer)
+            addView(tip)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(if (firstRun) "先给自己起个名字" else "设置名字")
+            .setView(layout)
+            .setPositiveButton("保存") { _, _ ->
+                names.save(etMe.text.toString(), etHer.text.toString())
+                applyNames()
+                Toast.makeText(this, "已保存：${names.me} 和 ${names.her}", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(if (firstRun) "以后再说" else "取消", null)
+            .show()
+    }
+
+    private fun applyNames() {
+        titleView.text = "${names.her} · 邵珠佳"
+        updateBadges()
     }
 
     private fun confirmClear() {
@@ -257,7 +335,7 @@ class MainActivity : Activity() {
     private fun shareLog(body: String) {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "小猪聊天记录")
+            putExtra(Intent.EXTRA_SUBJECT, "和${names.her}的聊天记录")
             putExtra(Intent.EXTRA_TEXT, body)
         }
         startActivity(Intent.createChooser(intent, "分享聊天记录"))
