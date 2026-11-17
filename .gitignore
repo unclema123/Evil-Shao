@@ -5,3 +5,8 @@ out/
 *.iml
 .idea/
 .DS_Store
+
+# 本地工具链与个人备份，不入库
+tools/
+misc/
+android/local.properties

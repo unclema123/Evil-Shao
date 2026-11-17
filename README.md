@@ -9,6 +9,19 @@
 > 装 [`android/app-debug.apk`](android/app-debug.apk) 即可（雷电模拟器、手机都能装）。
 > 下面这一节讲的是桌面版。
 
+## 文件都在哪（全部在 E 盘）
+
+| 路径 | 内容 |
+|---|---|
+| `E:\EvilShao` | 本仓库：桌面版源码、`android/`、`web-2d/`、截图 |
+| `E:\EvilShao\android` | Android 工程（OpenGL ES 版） |
+| `E:\EvilShao\web-2d` | 最早的 2D 网页版（单文件 HTML） |
+| `E:\EvilShao\tools` | WiX 工具链（做桌面安装包用，未入库） |
+| `E:\Dev\android-sdk` | Android SDK（platform 35 / build-tools 35） |
+| `E:\Dev\gradle-home` | Gradle 缓存与发行版（`GRADLE_USER_HOME`） |
+
+环境变量已设为用户级持久生效：`ANDROID_HOME`、`ANDROID_SDK_ROOT`、`GRADLE_USER_HOME`。
+
 ## 运行
 
 ### 方式一：直接跑打包好的程序
