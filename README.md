@@ -5,6 +5,10 @@
 
 不是聊天记录窗口——主体是 3D 角色，对话只以气泡形式临时出现。
 
+> **Android 版在 [`android/`](android/) 目录**：用 OpenGL ES 2.0 真 3D 渲染，
+> 装 [`android/app-debug.apk`](android/app-debug.apk) 即可（雷电模拟器、手机都能装）。
+> 下面这一节讲的是桌面版。
+
 ## 运行
 
 ### 方式一：直接跑打包好的程序
