@@ -9,10 +9,12 @@ import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.InputType
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -32,6 +34,7 @@ class MainActivity : Activity() {
     private lateinit var chatLog: ChatLog
     private lateinit var learner: Learner
     private lateinit var dreamer: Dreamer
+    private lateinit var llm: LlmClient
 
     private val ui = Handler(Looper.getMainLooper())
     private var sinceTrain = 0
@@ -41,6 +44,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        llm = LlmClient(this)
         quotes = Quotes(this)
         chatLog = ChatLog(this)
         learner = Learner(this)
@@ -89,23 +93,57 @@ class MainActivity : Activity() {
         input.setText("")
         chatLog.append("我", text)
         say("……")
-        ui.postDelayed({
-            val reply = quotes.reply(text)
-            chatLog.append("她", reply)
-            say(reply)
-            updateBadges()
-            sinceTrain++
-            if (sinceTrain >= 12) {
-                sinceTrain = 0
-                trainAsync(showToast = false)
-            }
-        }, 520)
         hideKeyboard()
+
+        if (llm.isConfigured()) {
+            ui.postDelayed({ askLlm(text) }, 260)
+        } else {
+            ui.postDelayed({ afterReply(quotes.reply(text)) }, 520)
+        }
+    }
+
+    /** 走大模型；失败自动回退本地，保证不会变哑巴 */
+    private fun askLlm(userText: String) {
+        Thread {
+            val reply = try {
+                llm.chat(Persona.systemPrompt(quotes), userText)
+            } catch (e: Exception) {
+                null
+            }
+            ui.post {
+                val clean = sanitize(reply)
+                if (clean != null) {
+                    afterReply(clean)
+                } else {
+                    afterReply(quotes.reply(userText))
+                }
+            }
+        }.start()
+    }
+
+    /** 模型偶尔会带引号或换行，清理一下 */
+    private fun sanitize(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        var s = raw.trim().replace("\n", " ")
+        s = s.trim('"', '「', '」', '“', '”', '\'')
+        if (s.contains("作为") && s.contains("AI")) return null
+        if (s.length > 40) s = s.take(40)
+        return s.ifBlank { null }
+    }
+
+    private fun afterReply(reply: String) {
+        chatLog.append("她", reply)
+        say(reply)
+        updateBadges()
+        sinceTrain++
+        if (sinceTrain >= 12) {
+            sinceTrain = 0
+            trainAsync(showToast = false)
+        }
     }
 
     /**
      * 一轮「自学」：重算权重 + 造几条新句子。
-     * 新句子进候选池，之后靠学习权重自己淘汰或留下。
      */
     private fun trainAsync(showToast: Boolean) {
         Thread {
@@ -140,12 +178,11 @@ class MainActivity : Activity() {
     private fun updateBadges() {
         val n = chatLog.count()
         recordView.text = if (n > 0) "记录 $n" else "记录"
-        learnView.text = if (quotes.invented.isNotEmpty()) {
-            "学习 ${learner.feedbacks}·新句 ${quotes.invented.size}"
-        } else if (learner.analyzed > 0) {
-            "学习 ${learner.feedbacks}"
-        } else {
-            "学习"
+        val ai = if (llm.isConfigured()) "AI " else ""
+        learnView.text = when {
+            quotes.invented.isNotEmpty() -> "学习 ${learner.feedbacks}·新句 ${quotes.invented.size} $ai".trim()
+            learner.analyzed > 0 -> "学习 ${learner.feedbacks} $ai".trim()
+            else -> "学习 $ai".trim()
         }
     }
 
@@ -172,10 +209,15 @@ class MainActivity : Activity() {
         } else {
             quotes.invented.takeLast(10).forEach { sb.append("  ").append(it).append('\n') }
         }
+        sb.append("\n── 大模型 ──\n")
+        sb.append(
+            if (llm.isConfigured()) "已启用：${llm.model}\n断开网络或调用失败时会自动用本地语料。"
+            else "未启用，现在完全靠本地语料。点「接 AI」填 Key 就能接大模型。"
+        )
+        llm.lastError?.let { sb.append("\n最近一次失败：").append(it) }
         return sb.toString().trimEnd()
     }
 
-    /** 聊天记录：翻看 / 分享 / 清空 */
     private fun showHistory() {
         val body = chatLog.asText()
         val tv = TextView(this).apply {
@@ -221,7 +263,6 @@ class MainActivity : Activity() {
         startActivity(Intent.createChooser(intent, "分享聊天记录"))
     }
 
-    /** 学习面板：她学到的东西 + 自己造的新句 */
     private fun showLearner() {
         val tv = TextView(this).apply {
             text = learnPanelText()
@@ -235,19 +276,22 @@ class MainActivity : Activity() {
 
         fun mkButton(label: String): Button = Button(this).apply {
             text = label
-            textSize = 13f
+            textSize = 12f
             setBackgroundColor(Color.TRANSPARENT)
             setTextColor(0xFF8C6A75.toInt())
         }
 
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(24, 0, 24, 0)
+            setPadding(12, 0, 12, 0)
             addView(mkButton("学一次").apply {
                 setOnClickListener { trainAsync(showToast = true) }
             })
             addView(mkButton("再造几句").apply {
                 setOnClickListener { inventMore() }
+            })
+            addView(mkButton("接AI").apply {
+                setOnClickListener { showAiSettings() }
             })
             addView(mkButton("重置").apply {
                 setOnClickListener { confirmResetLearning() }
@@ -269,7 +313,112 @@ class MainActivity : Activity() {
             .show()
     }
 
-    /** 手动多造几句 */
+    /** 大模型设置：接口地址 / 模型 / Key */
+    private fun showAiSettings() {
+        val pad = (18 * resources.displayMetrics.density).toInt()
+
+        val cb = CheckBox(this).apply {
+            text = "启用大模型"
+            isChecked = llm.enabled
+        }
+        val etBase = EditText(this).apply {
+            setText(llm.baseUrl)
+            hint = "https://open.bigmodel.cn/api/paas/v4"
+            inputType = InputType.TYPE_TEXT_VARIATION_URI
+        }
+        val etModel = EditText(this).apply {
+            setText(llm.model)
+            hint = "glm-4-flash"
+        }
+        val etKey = EditText(this).apply {
+            setText(llm.apiKey)
+            hint = "粘贴 API Key"
+            inputType = InputType.TYPE_CLASS_TEXT
+            setSingleLine()
+        }
+        val tip = TextView(this).apply {
+            text = "智谱：open.bigmodel.cn 注册后在「API Keys」新建，GLM-4-Flash 免费。\n" +
+                "也支持硅基流动、DeepSeek 等 OpenAI 兼容接口。\n" +
+                "Key 只存在本机，卸载即清除。"
+            textSize = 11f
+            setTextColor(0xFF8C8C8C.toInt())
+        }
+        val result = TextView(this).apply {
+            textSize = 12f
+            setTextColor(0xFF6D4B57.toInt())
+        }
+        val testBtn = Button(this).apply {
+            text = "测试连接"
+            setOnClickListener {
+                val base = etBase.text.toString().trim()
+                val modelName = etModel.text.toString().trim()
+                val key = etKey.text.toString().trim()
+                if (key.isBlank()) {
+                    result.text = "先填 Key"
+                    return@setOnClickListener
+                }
+                result.text = "测试中…"
+                Thread {
+                    val probe = LlmClient(this@MainActivity)
+                    probe.enabled = true
+                    probe.baseUrl = base
+                    probe.model = modelName
+                    probe.apiKey = key
+                    val r = probe.chat("你只回一个词。", "说「好」")
+                    ui.post {
+                        result.text = if (r != null) "连接成功，模型回了：$r" else "连接失败（检查 Key、模型名或网络）"
+                        // 测试用的临时配置不落盘，恢复原值
+                        probe.enabled = llm.enabled
+                        probe.baseUrl = llm.baseUrl
+                        probe.model = llm.model
+                        probe.apiKey = llm.apiKey
+                    }
+                }.start()
+            }
+        }
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, 0)
+            addView(cb)
+            addView(TextView(this@MainActivity).apply {
+                text = "接口地址"; textSize = 12f; setTextColor(0xFF8C6A75.toInt())
+            })
+            addView(etBase)
+            addView(TextView(this@MainActivity).apply {
+                text = "模型名"; textSize = 12f; setTextColor(0xFF8C6A75.toInt())
+            })
+            addView(etModel)
+            addView(TextView(this@MainActivity).apply {
+                text = "API Key"; textSize = 12f; setTextColor(0xFF8C6A75.toInt())
+            })
+            addView(etKey)
+            addView(tip)
+            addView(testBtn)
+            addView(result)
+        }
+        val sv = ScrollView(this).apply { addView(layout) }
+
+        AlertDialog.Builder(this)
+            .setTitle("接入大模型（可选）")
+            .setView(sv)
+            .setPositiveButton("保存") { _, _ ->
+                llm.baseUrl = etBase.text.toString()
+                llm.model = etModel.text.toString()
+                llm.apiKey = etKey.text.toString()
+                llm.enabled = cb.isChecked
+                updateBadges()
+                panelText?.text = learnPanelText()
+                Toast.makeText(
+                    this,
+                    if (llm.isConfigured()) "已启用大模型" else "已保存（未启用）",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
     private fun inventMore() {
         Thread {
             try {
