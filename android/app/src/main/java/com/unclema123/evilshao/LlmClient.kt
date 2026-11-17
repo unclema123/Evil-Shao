@@ -34,6 +34,11 @@ class LlmClient(context: Context) {
         get() = prefs.getString("model", DEFAULT_MODEL) ?: DEFAULT_MODEL
         set(v) = prefs.edit().putString("model", v.trim()).apply()
 
+    /** 联网搜索开关：查不到就上网找，找到会存进本地知识库 */
+    var searchEnabled: Boolean
+        get() = prefs.getBoolean("search", true)
+        set(v) = prefs.edit().putBoolean("search", v).apply()
+
     fun isConfigured(): Boolean =
         enabled && apiKey.isNotBlank() && baseUrl.isNotBlank() && model.isNotBlank()
 

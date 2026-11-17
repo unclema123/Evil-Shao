@@ -37,6 +37,8 @@ class MainActivity : Activity() {
     private lateinit var dreamer: Dreamer
     private lateinit var llm: LlmClient
     private lateinit var names: Names
+    private lateinit var web: WebSearch
+    private lateinit var knowledge: Knowledge
 
     private val ui = Handler(Looper.getMainLooper())
     private var sinceTrain = 0
@@ -48,6 +50,8 @@ class MainActivity : Activity() {
 
         llm = LlmClient(this)
         names = Names(this)
+        web = WebSearch()
+        knowledge = Knowledge(this)
         quotes = Quotes(this)
         chatLog = ChatLog(this)
         learner = Learner(this)
@@ -115,18 +119,48 @@ class MainActivity : Activity() {
         }
     }
 
-    /** 走大模型；失败自动回退本地，保证不会变哑巴 */
+    /** 走大模型；查得到就用知识库，查不到就上网搜，搜到记住；全失败回退本地 */
     private fun askLlm(userText: String) {
+        // 1. 先看自己学过的
+        val known = try {
+            knowledge.find(userText)
+        } catch (e: Exception) {
+            null
+        }
+        if (known != null) {
+            afterReply(known.answer)
+            return
+        }
+
+        // 2. 没学过，且没开联网 → 直接问模型
+        if (!llm.searchEnabled) {
+            askLlmPlain(userText)
+            return
+        }
+
+        // 3. 联网搜一轮，把摘要喂给模型
+        say("……我查一下")
         Thread {
-            val reply = try {
-                llm.chat(Persona.systemPrompt(quotes), userText)
+            val hits = try {
+                web.search(userText, 4)
             } catch (e: Exception) {
-                null
+                emptyList<WebSearch.Hit>()
             }
+
+            val reply = if (hits.isEmpty()) {
+                llm.chat(Persona.systemPrompt(quotes), userText)
+            } else {
+                llm.chat(Persona.researchPrompt(), Persona.materialPrompt(userText, hits))
+            }
+
             ui.post {
-                val clean = sanitize(reply)
+                val clean = sanitize(reply, if (hits.isEmpty()) 40 else 70)
                 if (clean != null) {
+                    if (hits.isNotEmpty()) {
+                        knowledge.save(userText, clean, hits.map { it.url })
+                    }
                     afterReply(clean)
+                    panelText?.text = learnPanelText()
                 } else {
                     afterReply(quotes.reply(userText))
                 }
@@ -134,13 +168,27 @@ class MainActivity : Activity() {
         }.start()
     }
 
+    private fun askLlmPlain(userText: String) {
+        Thread {
+            val reply = try {
+                llm.chat(Persona.systemPrompt(quotes), userText)
+            } catch (e: Exception) {
+                null
+            }
+            ui.post {
+                val clean = sanitize(reply, 40)
+                if (clean != null) afterReply(clean) else afterReply(quotes.reply(userText))
+            }
+        }.start()
+    }
+
     /** 模型偶尔会带引号或换行，清理一下 */
-    private fun sanitize(raw: String?): String? {
+    private fun sanitize(raw: String?, maxLen: Int = 40): String? {
         if (raw.isNullOrBlank()) return null
         var s = raw.trim().replace("\n", " ")
         s = s.trim('"', '「', '」', '“', '”', '\'')
         if (s.contains("作为") && s.contains("AI")) return null
-        if (s.length > 40) s = s.take(40)
+        if (s.length > maxLen) s = s.take(maxLen)
         return s.ifBlank { null }
     }
 
@@ -228,6 +276,23 @@ class MainActivity : Activity() {
             else "未启用，现在完全靠本地语料。点「接 AI」填 Key 就能接大模型。"
         )
         llm.lastError?.let { sb.append("\n最近一次失败：").append(it) }
+
+        sb.append("\n\n── 联网学习 ──\n")
+        sb.append(
+            if (llm.searchEnabled) "已开启：不会的先上网查，查到就记住。"
+            else "已关闭：不联网，只用本地语料和大模型本身的知识。"
+        )
+        sb.append("\n知识库：").append(knowledge.count()).append(" 条")
+        val recent = try {
+            knowledge.recent(3)
+        } catch (e: Exception) {
+            emptyList<Knowledge.Entry>()
+        }
+        for (e in recent) {
+            sb.append("\n  ").append(e.question.take(20)).append(" → ").append(e.answer.take(16))
+        }
+        if (knowledge.count() > 0) sb.append("\n（完整内容看 files/knowledge.jsonl）")
+
         return sb.toString().trimEnd()
     }
 
@@ -399,6 +464,11 @@ class MainActivity : Activity() {
             text = "启用大模型"
             isChecked = llm.enabled
         }
+        val cbSearch = CheckBox(this).apply {
+            text = "联网搜索（不会的先上网查，查到就记住）"
+            isChecked = llm.searchEnabled
+            textSize = 13f
+        }
         val etBase = EditText(this).apply {
             setText(llm.baseUrl)
             hint = "https://open.bigmodel.cn/api/paas/v4"
@@ -459,6 +529,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, 0)
             addView(cb)
+            addView(cbSearch)
             addView(TextView(this@MainActivity).apply {
                 text = "接口地址"; textSize = 12f; setTextColor(0xFF8C6A75.toInt())
             })
@@ -485,6 +556,7 @@ class MainActivity : Activity() {
                 llm.model = etModel.text.toString()
                 llm.apiKey = etKey.text.toString()
                 llm.enabled = cb.isChecked
+                llm.searchEnabled = cbSearch.isChecked
                 updateBadges()
                 panelText?.text = learnPanelText()
                 Toast.makeText(
