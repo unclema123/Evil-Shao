@@ -72,7 +72,7 @@ class MainActivity : Activity() {
         titleView = findViewById(R.id.title)
         val send = findViewById<Button>(R.id.send)
 
-        titleView.text = "${names.her} · 邵珠佳"
+        titleView.text = getString(R.string.app_name)
         titleView.setOnClickListener { showNameSettings(firstRun = false) }
 
         gl.setOnTouchListener(TouchHandler())
@@ -315,7 +315,7 @@ class MainActivity : Activity() {
     }
 
     private fun applyNames() {
-        titleView.text = "${names.her} · 邵珠佳"
+        // 标题固定用应用名，两个人的称呼只影响聊天记录
         updateBadges()
     }
 

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">邪恶邵</string>
+    <string name="app_name">Evil Shao</string>
     <string name="hint">和她说点什么…</string>
     <string name="send">说</string>
     <string name="record">记录</string>
