@@ -298,10 +298,12 @@ class MainActivity : Activity() {
 
     /** 把「为什么没启用」说清楚，别只给一句未启用 */
     private fun llmStatusText(): String = when {
+        llm.isConfigured() && llm.keyless ->
+            "已启用（免 Key）：${llm.model}\n公开免费接口，不用注册。忙的时候可能慢几秒或失败。"
         llm.isConfigured() ->
             "已启用：${llm.model}\n断开网络或调用失败时会自动用本地语料。"
-        llm.enabled && llm.apiKey.isBlank() ->
-            "缺 API Key，模型调不动，现在说话用的是本地语料。\n点下面的「接 AI」把 Key 粘进去。"
+        llm.enabled && llm.apiKey.isBlank() && !llm.keyless ->
+            "缺 API Key，模型调不动，现在说话用的是本地语料。\n点「接 AI」→「用免 Key 的免费 AI」就能立刻用上。"
         llm.enabled ->
             "配置不完整（接口地址或模型名为空），现在说话用的是本地语料。"
         else ->
@@ -309,8 +311,9 @@ class MainActivity : Activity() {
     }
 
     private fun saveMessage(): String = when {
+        llm.isConfigured() && llm.keyless -> "已启用免 Key 免费 AI：${llm.model}"
         llm.isConfigured() -> "已启用大模型：${llm.model}"
-        llm.apiKey.isBlank() -> "已保存，但 API Key 是空的，还是本地语料"
+        llm.apiKey.isBlank() && !llm.keyless -> "已保存，但没填 Key 也没开免 Key 模式，还是本地语料"
         !llm.enabled -> "已保存，但没勾「启用大模型」"
         else -> "已保存，但接口地址或模型名不完整"
     }
@@ -488,6 +491,11 @@ class MainActivity : Activity() {
             isChecked = llm.searchEnabled
             textSize = 13f
         }
+        val cbKeyless = CheckBox(this).apply {
+            text = "免 Key 模式（公开接口，不用填 Key）"
+            isChecked = llm.keyless
+            textSize = 13f
+        }
         val etBase = EditText(this).apply {
             setText(llm.baseUrl)
             hint = "https://open.bigmodel.cn/api/paas/v4"
@@ -504,7 +512,8 @@ class MainActivity : Activity() {
             setSingleLine()
         }
         val tip = TextView(this).apply {
-            text = "智谱：open.bigmodel.cn 注册后在「API Keys」新建，GLM-4-Flash 免费。\n" +
+            text = "想零门槛先用起来：点下面「用免 Key 的免费 AI」，不用注册任何账号。\n" +
+                "想更稳定：智谱 open.bigmodel.cn 注册后建 API Key，GLM-4-Flash 免费。\n" +
                 "也支持硅基流动、DeepSeek 等 OpenAI 兼容接口。\n" +
                 "Key 只存在本机，卸载即清除。"
             textSize = 11f
@@ -515,13 +524,26 @@ class MainActivity : Activity() {
             setTextColor(0xFF6D4B57.toInt())
         }
         val testBtn = Button(this).apply {
+            text = "用免 Key 的免费 AI"
+            setOnClickListener {
+                etBase.setText(LlmClient.KEYLESS_BASE)
+                etModel.setText(LlmClient.KEYLESS_MODEL)
+                etKey.setText("")
+                cbKeyless.isChecked = true
+                cb.isChecked = true
+                cbSearch.isChecked = true
+                result.text = "已填好免 Key 接口，点「保存」立刻生效"
+            }
+        }
+        val probeBtn = Button(this).apply {
             text = "测试连接"
             setOnClickListener {
                 val base = etBase.text.toString().trim()
                 val modelName = etModel.text.toString().trim()
                 val key = etKey.text.toString().trim()
-                if (key.isBlank()) {
-                    result.text = "先填 Key"
+                val free = cbKeyless.isChecked
+                if (key.isBlank() && !free) {
+                    result.text = "先填 Key，或勾「免 Key 模式」"
                     return@setOnClickListener
                 }
                 result.text = "测试中…"
@@ -531,14 +553,11 @@ class MainActivity : Activity() {
                     probe.baseUrl = base
                     probe.model = modelName
                     probe.apiKey = key
+                    probe.keyless = free
                     val r = probe.chat("你只回一个词。", "说「好」")
                     ui.post {
-                        result.text = if (r != null) "连接成功，模型回了：$r" else "连接失败（检查 Key、模型名或网络）"
-                        // 测试用的临时配置不落盘，恢复原值
-                        probe.enabled = llm.enabled
-                        probe.baseUrl = llm.baseUrl
-                        probe.model = llm.model
-                        probe.apiKey = llm.apiKey
+                        result.text = if (r != null) "连接成功，模型回了：$r"
+                        else "连接失败（检查 Key、模型名或网络）"
                     }
                 }.start()
             }
@@ -549,6 +568,7 @@ class MainActivity : Activity() {
             setPadding(pad, pad, pad, 0)
             addView(cb)
             addView(cbSearch)
+            addView(cbKeyless)
             addView(TextView(this@MainActivity).apply {
                 text = "接口地址"; textSize = 12f; setTextColor(0xFF8C6A75.toInt())
             })
@@ -576,6 +596,7 @@ class MainActivity : Activity() {
                 llm.apiKey = etKey.text.toString()
                 llm.enabled = cb.isChecked
                 llm.searchEnabled = cbSearch.isChecked
+                llm.keyless = cbKeyless.isChecked
                 updateBadges()
                 panelText?.text = learnPanelText()
                 Toast.makeText(this, saveMessage(), Toast.LENGTH_LONG).show()

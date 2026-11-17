@@ -30,6 +30,11 @@ class LlmClient(context: Context) {
         get() = prefs.getString("apiKey", "") ?: ""
         set(v) = prefs.edit().putString("apiKey", v.trim()).apply()
 
+    /** 免 Key 模式：不发送 Authorization 头，用于 Pollinations 这类公开接口 */
+    var keyless: Boolean
+        get() = prefs.getBoolean("keyless", false)
+        set(v) = prefs.edit().putBoolean("keyless", v).apply()
+
     var model: String
         get() = prefs.getString("model", DEFAULT_MODEL) ?: DEFAULT_MODEL
         set(v) = prefs.edit().putString("model", v.trim()).apply()
@@ -40,7 +45,7 @@ class LlmClient(context: Context) {
         set(v) = prefs.edit().putBoolean("search", v).apply()
 
     fun isConfigured(): Boolean =
-        enabled && apiKey.isNotBlank() && baseUrl.isNotBlank() && model.isNotBlank()
+        enabled && baseUrl.isNotBlank() && model.isNotBlank() && (apiKey.isNotBlank() || keyless)
 
     /** 最近一次失败的原始原因，界面上能看到 */
     @Volatile
@@ -58,7 +63,9 @@ class LlmClient(context: Context) {
                 readTimeout = 20000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Authorization", "Bearer $apiKey")
+                if (apiKey.isNotBlank()) {
+                    setRequestProperty("Authorization", "Bearer $apiKey")
+                }
             }
 
             val messages = JSONArray()
@@ -127,5 +134,9 @@ class LlmClient(context: Context) {
             Triple("硅基流动 Qwen2.5-7B（免费额度）", "https://api.siliconflow.cn/v1", "Qwen/Qwen2.5-7B-Instruct"),
             Triple("DeepSeek Chat（便宜，非免费）", "https://api.deepseek.com/v1", "deepseek-chat")
         )
+
+        /** 不需要填 Key 的公开接口 */
+        const val KEYLESS_BASE = "https://text.pollinations.ai/openai"
+        const val KEYLESS_MODEL = "openai"
     }
 }
