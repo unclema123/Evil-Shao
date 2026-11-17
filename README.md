@@ -15,6 +15,9 @@ dist/PigNpc/PigNpc.exe
 
 双击即可，**不需要装 Java**（jpackage 已经把运行时打进 `runtime/`）。
 
+> `dist/` 有 160MB，没有提交进仓库；克隆后需要按下面「构建」一节自己生成。
+> 想省事可以直接用「方式二」，只要 JDK 21 + Gradle，不用先打包。
+
 ### 方式二：从源码运行
 
 ```bash
