@@ -14,6 +14,9 @@ class Quotes(context: Context) {
 
     class Rule(val keys: List<String>, val replies: List<String>)
 
+    /** 挂上学习器后，回复会按学到的权重来挑 */
+    var learner: Learner? = null
+
     val signatures = ArrayList<String>()
     val rules = ArrayList<Rule>()
     val fallback = ArrayList<String>()
@@ -74,20 +77,51 @@ class Quotes(context: Context) {
             roll < 91 -> signatures
             else -> fallback
         }
-        return pick(pool)
+        return pick(pool, text)
     }
 
-    private fun pick(pool: List<String>): String {
+    /**
+     * 从候选池里按「学到的权重」抽一句。
+     *
+     * learner 为空时退化成均匀随机；有权重时，被夸过的句子更容易被挑中，
+     * 被嫌弃过的会被压低。同时避免最近说过的 4 句。
+     */
+    private fun pick(pool: List<String>, input: String = ""): String {
         if (pool.isEmpty()) return "……"
-        if (pool.size == 1) return pool[0]
-        repeat(6) {
-            val s = pool[Random.nextInt(pool.size)]
-            if (!recent.contains(s)) {
-                remember(s)
-                return s
+        if (pool.size == 1) {
+            remember(pool[0])
+            return pool[0]
+        }
+
+        val fresh = pool.filter { !recent.contains(it) }
+        val candidates = if (fresh.isNotEmpty()) fresh else pool
+
+        val learned = learner
+        if (learned == null) {
+            val s = candidates[Random.nextInt(candidates.size)]
+            remember(s)
+            return s
+        }
+
+        val weights = DoubleArray(candidates.size) { i ->
+            learned.bonus(candidates[i], input)
+        }
+        val total = weights.sum()
+        if (total <= 0.0) {
+            val s = candidates[Random.nextInt(candidates.size)]
+            remember(s)
+            return s
+        }
+
+        var r = Random.nextDouble() * total
+        for (i in candidates.indices) {
+            r -= weights[i]
+            if (r <= 0.0) {
+                remember(candidates[i])
+                return candidates[i]
             }
         }
-        val s = pool[Random.nextInt(pool.size)]
+        val s = candidates.last()
         remember(s)
         return s
     }

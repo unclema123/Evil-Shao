@@ -16,7 +16,6 @@ import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import java.io.File
 import kotlin.math.abs
 
 class MainActivity : Activity() {
@@ -25,11 +24,14 @@ class MainActivity : Activity() {
     private lateinit var bubble: TextView
     private lateinit var input: EditText
     private lateinit var recordView: TextView
+    private lateinit var learnView: TextView
     private lateinit var renderer: PigRenderer
     private lateinit var quotes: Quotes
     private lateinit var chatLog: ChatLog
+    private lateinit var learner: Learner
 
     private val ui = Handler(Looper.getMainLooper())
+    private var sinceTrain = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,6 +39,10 @@ class MainActivity : Activity() {
 
         quotes = Quotes(this)
         chatLog = ChatLog(this)
+        learner = Learner(this)
+        learner.load()
+        quotes.learner = learner
+
         renderer = PigRenderer()
 
         gl = findViewById(R.id.gl)
@@ -47,6 +53,7 @@ class MainActivity : Activity() {
         bubble = findViewById(R.id.bubble)
         input = findViewById(R.id.input)
         recordView = findViewById(R.id.record)
+        learnView = findViewById(R.id.learn)
         val send = findViewById<Button>(R.id.send)
 
         gl.setOnTouchListener(TouchHandler())
@@ -57,13 +64,17 @@ class MainActivity : Activity() {
             true
         }
         recordView.setOnClickListener { showHistory() }
+        learnView.setOnClickListener { showLearner() }
+
+        // 启动时先按历史记录学一遍
+        trainAsync(showToast = false)
 
         ui.postDelayed({ say("……你来啦。") }, 500)
     }
 
     override fun onResume() {
         super.onResume()
-        updateRecordBadge()
+        updateBadges()
     }
 
     private fun submit() {
@@ -76,14 +87,36 @@ class MainActivity : Activity() {
             val reply = quotes.reply(text)
             chatLog.append("她", reply)
             say(reply)
-            updateRecordBadge()
+            updateBadges()
+            sinceTrain++
+            if (sinceTrain >= 12) {
+                sinceTrain = 0
+                trainAsync(showToast = false)
+            }
         }, 520)
         hideKeyboard()
     }
 
-    private fun updateRecordBadge() {
+    /** 后台线程重扫聊天记录、重算权重 */
+    private fun trainAsync(showToast: Boolean) {
+        Thread {
+            try {
+                learner.train(chatLog.entries())
+                ui.post {
+                    updateBadges()
+                    if (showToast) {
+                        Toast.makeText(this, "学完了：分析了 ${learner.analyzed} 条对话", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }.start()
+    }
+
+    private fun updateBadges() {
         val n = chatLog.count()
         recordView.text = if (n > 0) "记录 $n" else "记录"
+        learnView.text = if (learner.analyzed > 0) "学习 ${learner.feedbacks}" else "学习"
     }
 
     private fun say(text: String) {
@@ -128,10 +161,10 @@ class MainActivity : Activity() {
     private fun confirmClear() {
         AlertDialog.Builder(this)
             .setTitle("清空记录？")
-            .setMessage("所有聊天记录会被删除，无法恢复。")
+            .setMessage("所有聊天记录会被删除，无法恢复。\n\n注意：学习结果会保留，想一起清掉请用「学习 → 重置」。")
             .setPositiveButton("清空") { _, _ ->
                 chatLog.clear()
-                updateRecordBadge()
+                updateBadges()
                 Toast.makeText(this, "已清空", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("取消", null)
@@ -145,6 +178,39 @@ class MainActivity : Activity() {
             putExtra(Intent.EXTRA_TEXT, body)
         }
         startActivity(Intent.createChooser(intent, "分享聊天记录"))
+    }
+
+    /** 学习面板：看她学到了什么 */
+    private fun showLearner() {
+        val tv = TextView(this).apply {
+            text = learner.report()
+            textSize = 13f
+            setLineSpacing(8f, 1f)
+            setPadding(48, 36, 48, 36)
+            setTextIsSelectable(true)
+        }
+        val sv = ScrollView(this).apply { addView(tv) }
+
+        AlertDialog.Builder(this)
+            .setTitle("她学到的东西")
+            .setView(sv)
+            .setPositiveButton("学一次") { _, _ -> trainAsync(showToast = true) }
+            .setNeutralButton("重置") { _, _ -> confirmResetLearning() }
+            .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    private fun confirmResetLearning() {
+        AlertDialog.Builder(this)
+            .setTitle("重置学习？")
+            .setMessage("学到的东西全部清空，她会回到最初的状态。聊天记录不受影响。")
+            .setPositiveButton("重置") { _, _ ->
+                learner.reset()
+                updateBadges()
+                Toast.makeText(this, "已重置", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("取消", null)
+            .show()
     }
 
     private fun hideKeyboard() {
@@ -179,7 +245,7 @@ class MainActivity : Activity() {
                         val line = quotes.randomSignature()
                         chatLog.append("她", line)
                         say(line)
-                        updateRecordBadge()
+                        updateBadges()
                     }
                 }
             }
