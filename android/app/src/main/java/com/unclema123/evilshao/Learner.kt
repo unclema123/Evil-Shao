@@ -85,6 +85,9 @@ class Learner(context: Context) {
             val her = entries[i + 1]
             if (me.role != "我" || her.role != "她") continue
             a++
+            // 联网查来的资料型长回答不算「她的话」，不该混进风格权重
+            if (her.message.length > 30) continue
+
             val s = replyStats.getOrPut(her.message) { Stats() }
             s.used++
 

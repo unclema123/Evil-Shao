@@ -271,16 +271,16 @@ class MainActivity : Activity() {
             quotes.invented.takeLast(10).forEach { sb.append("  ").append(it).append('\n') }
         }
         sb.append("\n── 大模型 ──\n")
-        sb.append(
-            if (llm.isConfigured()) "已启用：${llm.model}\n断开网络或调用失败时会自动用本地语料。"
-            else "未启用，现在完全靠本地语料。点「接 AI」填 Key 就能接大模型。"
-        )
+        sb.append(llmStatusText())
         llm.lastError?.let { sb.append("\n最近一次失败：").append(it) }
 
         sb.append("\n\n── 联网学习 ──\n")
         sb.append(
-            if (llm.searchEnabled) "已开启：不会的先上网查，查到就记住。"
-            else "已关闭：不联网，只用本地语料和大模型本身的知识。"
+            when {
+                !llm.isConfigured() -> "未生效：联网搜索要靠大模型读搜索结果，先把大模型配好。"
+                llm.searchEnabled -> "已开启：不会的先上网查，查到就记住。"
+                else -> "已关闭：只用本地语料和大模型本身的知识。"
+            }
         )
         sb.append("\n知识库：").append(knowledge.count()).append(" 条")
         val recent = try {
@@ -294,6 +294,25 @@ class MainActivity : Activity() {
         if (knowledge.count() > 0) sb.append("\n（完整内容看 files/knowledge.jsonl）")
 
         return sb.toString().trimEnd()
+    }
+
+    /** 把「为什么没启用」说清楚，别只给一句未启用 */
+    private fun llmStatusText(): String = when {
+        llm.isConfigured() ->
+            "已启用：${llm.model}\n断开网络或调用失败时会自动用本地语料。"
+        llm.enabled && llm.apiKey.isBlank() ->
+            "缺 API Key，模型调不动，现在说话用的是本地语料。\n点下面的「接 AI」把 Key 粘进去。"
+        llm.enabled ->
+            "配置不完整（接口地址或模型名为空），现在说话用的是本地语料。"
+        else ->
+            "没勾「启用大模型」，现在说话用的是本地语料。\n点「接 AI」填 Key 并勾上就能接。"
+    }
+
+    private fun saveMessage(): String = when {
+        llm.isConfigured() -> "已启用大模型：${llm.model}"
+        llm.apiKey.isBlank() -> "已保存，但 API Key 是空的，还是本地语料"
+        !llm.enabled -> "已保存，但没勾「启用大模型」"
+        else -> "已保存，但接口地址或模型名不完整"
     }
 
     private fun showHistory() {
@@ -559,11 +578,7 @@ class MainActivity : Activity() {
                 llm.searchEnabled = cbSearch.isChecked
                 updateBadges()
                 panelText?.text = learnPanelText()
-                Toast.makeText(
-                    this,
-                    if (llm.isConfigured()) "已启用大模型" else "已保存（未启用）",
-                    Toast.LENGTH_SHORT
-                ).show()
+                Toast.makeText(this, saveMessage(), Toast.LENGTH_LONG).show()
             }
             .setNegativeButton("取消", null)
             .show()

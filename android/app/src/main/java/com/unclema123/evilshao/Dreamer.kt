@@ -72,6 +72,8 @@ class Dreamer(context: Context) {
             }
         }
         invented.addAll(out)
+        // 控制总量，太多就成了复读机；只保留最近造的
+        while (invented.size > MAX_KEEP) invented.removeAt(0)
         if (out.isNotEmpty()) save()
         return out
     }
@@ -126,5 +128,10 @@ class Dreamer(context: Context) {
         val okEnd = "。！？~…吧啊呢呗哈呀了"
         if (!okEnd.contains(s.last())) return false
         return true
+    }
+
+    companion object {
+        /** 最多留这么多句自己造的，超了就丢最早的 */
+        const val MAX_KEEP = 45
     }
 }
