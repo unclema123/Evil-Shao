@@ -205,7 +205,9 @@ class GlbRenderer(private val context: Context) : GLSurfaceView.Renderer {
                     data.put(0f); data.put(0f); data.put(1f)
                 }
                 if (uvs != null && uvs.size >= (i + 1) * 2) {
-                    data.put(uvs[i * 2]); data.put(1f - uvs[i * 2 + 1])
+                    // 贴图是用 GLUtils 上传的，图片第 0 行落在 v=0，
+                    // 跟 glTF 的 UV 约定一致，所以这里不翻 V
+                    data.put(uvs[i * 2]); data.put(uvs[i * 2 + 1])
                 } else {
                     data.put(0f); data.put(0f)
                 }
@@ -409,13 +411,28 @@ class GlbRenderer(private val context: Context) : GLSurfaceView.Renderer {
             varying vec3 vC;
             void main() {
                 vec4 texel = texture2D(uTex, vUv);
-                // 有顶点色就用顶点色（TripoSR 这类没贴图的模型），否则用贴图
+                // 有顶点色就用顶点色（TriposR 这类没贴图的模型），否则用贴图
                 vec3 base = mix(texel.rgb, vC * texel.rgb, uVertexColor);
                 vec3 n = normalize(vN);
+
                 float diff = max(dot(n, normalize(uLight)), 0.0);
-                float fill = max(dot(n, normalize(vec3(0.55, 0.1, 0.8))), 0.0) * 0.25;
-                float lum = 0.62 + 0.50 * diff + fill;
-                gl_FragColor = vec4(base * lum, 1.0);
+                float fill = max(dot(n, normalize(vec3(0.55, 0.1, 0.8))), 0.0) * 0.22;
+
+                // 顶点色是插值出来的，天生偏灰偏糊。
+                // 提一点饱和度和对比，再把高光收窄，细节会「立」起来。
+                float lum = dot(base, vec3(0.299, 0.587, 0.114));
+                base = mix(vec3(lum), base, 1.22);
+                base = clamp((base - 0.5) * 1.08 + 0.5, 0.0, 1.0);
+
+                float shade = 0.60 + 0.46 * diff + fill;
+                vec3 col = base * shade;
+
+                // 顶部轮廓光，把帽子边缘和头形勾出来
+                vec3 viewDir = normalize(vec3(0.0, 0.25, 1.0));
+                float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
+                col += rim * 0.10;
+
+                gl_FragColor = vec4(col, 1.0);
             }
         """
     }
