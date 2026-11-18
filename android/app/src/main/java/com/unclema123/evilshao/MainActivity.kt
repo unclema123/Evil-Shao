@@ -32,7 +32,7 @@ class MainActivity : Activity() {
     private lateinit var titleView: TextView
     private lateinit var menuPanel: LinearLayout
     private lateinit var scrim: View
-    private lateinit var renderer: PigRenderer
+    private lateinit var renderer: GlbRenderer
     private lateinit var quotes: Quotes
     private lateinit var chatLog: ChatLog
     private lateinit var learner: Learner
@@ -68,7 +68,7 @@ class MainActivity : Activity() {
         quotes.invented.addAll(dreamer.invented)
         quotes.dreamer = dreamer
 
-        renderer = PigRenderer()
+        renderer = GlbRenderer(this)
 
         gl = findViewById(R.id.gl)
         gl.setEGLContextClientVersion(2)
@@ -136,12 +136,12 @@ class MainActivity : Activity() {
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
         val want = intent?.getStringExtra("mood")?.lowercase() ?: return
         val m = when (want) {
-            "neutral" -> PigRenderer.Mood.NEUTRAL
-            "happy" -> PigRenderer.Mood.HAPPY
-            "angry" -> PigRenderer.Mood.ANGRY
-            "surprised" -> PigRenderer.Mood.SURPRISED
-            "shy" -> PigRenderer.Mood.SHY
-            "bored" -> PigRenderer.Mood.BORED
+            "neutral" -> GlbRenderer.Mood.NEUTRAL
+            "happy" -> GlbRenderer.Mood.HAPPY
+            "angry" -> GlbRenderer.Mood.ANGRY
+            "surprised" -> GlbRenderer.Mood.SURPRISED
+            "shy" -> GlbRenderer.Mood.SHY
+            "bored" -> GlbRenderer.Mood.BORED
             else -> return
         }
         ui.postDelayed({ renderer.show(m, 600_000L) }, 300)
@@ -258,7 +258,7 @@ class MainActivity : Activity() {
         say(reply)
         val mood = moodFor(reply)
         renderer.show(mood)
-        if (mood == PigRenderer.Mood.HAPPY) renderer.wave(2000L)
+        if (mood == GlbRenderer.Mood.HAPPY) renderer.wave(2000L)
         updateBadges()
         sinceTrain++
         if (sinceTrain >= 12) {
@@ -273,9 +273,9 @@ class MainActivity : Activity() {
      * 顺序有讲究：先判断怼人和惊讶，因为「你闭嘴吧」里也可能带个感叹号，
      * 放到后面就会被当成长辈式平静。
      */
-    private fun moodFor(reply: String): PigRenderer.Mood {
+    private fun moodFor(reply: String): GlbRenderer.Mood {
         val t = reply.trim()
-        if (t.isEmpty()) return PigRenderer.Mood.NEUTRAL
+        if (t.isEmpty()) return GlbRenderer.Mood.NEUTRAL
 
         val angry = listOf("闭嘴", "傻子", "有病", "烦", "起开", "滚", "反弹", "你才", "少来", "无聊", "幼稚")
         val surprised = listOf("我的天", "窝趣", "卧槽", "天哪", "真的假的", "不会吧", "什么鬼", "离谱")
@@ -286,13 +286,13 @@ class MainActivity : Activity() {
         fun hit(list: List<String>) = list.any { t.contains(it) }
 
         return when {
-            hit(angry) -> PigRenderer.Mood.ANGRY
-            hit(surprised) -> PigRenderer.Mood.SURPRISED
-            hit(happy) -> PigRenderer.Mood.HAPPY
-            hit(shy) -> PigRenderer.Mood.SHY
+            hit(angry) -> GlbRenderer.Mood.ANGRY
+            hit(surprised) -> GlbRenderer.Mood.SURPRISED
+            hit(happy) -> GlbRenderer.Mood.HAPPY
+            hit(shy) -> GlbRenderer.Mood.SHY
             // 短促的敷衍（嗯、哦、……）才判无聊，长了就不是敷衍
-            hit(bored) && t.length <= 6 -> PigRenderer.Mood.BORED
-            else -> PigRenderer.Mood.NEUTRAL
+            hit(bored) && t.length <= 6 -> GlbRenderer.Mood.BORED
+            else -> GlbRenderer.Mood.NEUTRAL
         }
     }
 

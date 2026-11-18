@@ -370,51 +370,76 @@ AI
 
 之前右上角是两个独立按钮（学习 / 记录），现在合并成一个入口。
 
-## 3D 小猪与表情
+## 3D 小猪
 
-造型参考了一版插画：粉色小猪穿着**恐龙连帽衫**。头直径 1.92、身体 1.60，头比身子大，四肢短粗。
+现在的小猪是**真的 3D 模型**，不是用球体拼的：149 万三角面、带顶点色，从一张插画生成。
 
-**身上穿的东西**：
+### 模型怎么来的
 
-| 部位 | 做法 |
+1. **Meshy 走不通**：账号是免费计划，API 返回 402 ——「Task creation on the free plan is no longer supported」，有 100 积分也没用，必须升级订阅。
+2. **改本地跑 TripoSR**：`stabilityai/TripoSR`，单图转 3D，RTX 4060 8G 够用。权重从 hf-mirror 拉（huggingface 被墙）。
+3. **两个坑改了源码**：
+   - `torchmcubes` 是 CUDA 扩展，Windows 要装 CUDA Toolkit 才能编译 → 换成 `scikit-image` 的 marching cubes，慢几秒但零编译
+   - `trimesh 4.0.5` 和 numpy 2.x 不兼容（`ndarray.ptp` 被删）→ 升级 trimesh
+4. **构图归一化**：TripoSR 是按「物体占画面 85%、灰底、512×512」训练的。`--no-remove-bg` 会跳过这步预处理，直接喂原图出来是一团泥。所以自己按它的规则做了抠图 + 缩放 + 灰底合成。
+5. **颜色是投上去的**：模型自带顶点色里 43% 是灰的（单图看不到背面，模型只能猜）。所以把参考图按「正交投影 → 512 画布」的映射投到顶点上，正面 35% 的顶点拿到了原图真实颜色（眼睛、腮红、嘴、牙齿都是从图里采的），剩下的用最近邻补。
+6. **清理**：只留最大连通块（去悬空碎片）、切掉脚底的投影圆盘、删掉底部的影子三角。
+
+### 渲染
+
+`GlbRenderer.kt` + `GlbModel.kt`：自己写的 GLB 解析器，只认 POSITION / NORMAL / TEXCOORD_0 / COLOR_0 / 索引，骨骼和动画直接跳过。
+
+- 顶点色模型不绑贴图，所以初始化时先建一张 1×1 白纹理兜底——不建的话绑定纹理 0，采样全黑，整个屏幕一片黑
+- `COLOR_0` 是 `UNSIGNED_BYTE` + `normalized`，读进来要除以 255，否则颜色值 0~255 当 0~1 用，全白
+- 模型按包围盒自动缩放到高度 2.85，居中
+- 顶点色 + 一盏主光 + 一盏右前补光，保证右脸不掉进阴影
+
+### 情绪：改成整体动作
+
+静态模型没有面部绑定，表情做不了。所以情绪用**整体动作**表达：
+
+| 情绪 | 动作 |
 |---|---|
-| 兜帽 | 正面开了圆口的球壳（`Mesh.sphereOpen`），脸从口子里露出来；普通球体会把脸一起盖住 |
-| 帽檐牙齿 | 6 颗白色圆锥，沿兜帽开口上半圈排开 |
-| 恐龙背刺 | 3 根圆锥沿头顶往后倒 |
-| 帽衫身体 | 绿色球壳（开口朝下），下摆抬高露出粉色肚皮和腿 |
-| 鹅黄肚皮 | 压在衣服前面的扁椭球 |
-| 袖子 | 胳膊本身染成绿色，手是粉色 |
-| 蹄子 | 深棕色扁球 |
+| 平常 | 轻微呼吸起伏 |
+| 开心 | 蹦（abs(sin) 做跳跃）+ 挤扁拉长 |
+| 惊讶 | 一弹，先放大再回弹 |
+| 生气 | 高频小幅抖动 |
+| 害羞 | 歪头 + 缩小 |
+| 无聊 | 整体下沉、慢慢塌 |
 
-耳朵是从兜帽两侧穿出来的，用球体一半埋进帽壳实现。
+触发逻辑没变，还是按回话里的关键词判断（`moodFor`）。
 
-**六个表情**：
+**这一版丢了什么**：原来那套面部参数（眼睛开合、眉毛角度、嘴角弧度、腮红强度、眨眼）全部失效了。老的自绘版本还在仓库里（`PigRenderer.kt` + `Mesh.kt`），只是 `MainActivity` 现在不用它。
 
-| 表情 | 什么时候露 | 脸怎么变 |
-|---|---|---|
-| 平常 NEUTRAL | 默认 | 眼睛正常，嘴角微微上扬 |
-| 开心 HAPPY | 回话带「哈哈/笑死/嘿嘿」 | 眼睛眯成弯缝，嘴张开大笑，腮红加深，还会抬手挥两下 |
-| 生气 ANGRY | 回话带「闭嘴/傻子/烦/反弹」 | 眉毛内端下压，嘴角撇下去，歪头 |
-| 惊讶 SURPRISED | 回话带「我的天/窝趣/离谱」 | 眼睛瞪大，眉毛上抬，嘴张成 O |
-| 害羞 SHY | 回话带「人美心善/大度/谢谢」 | 眼睛半闭，腮红开满，歪头，瞳孔躲开 |
-| 无聊 BORED | 短句敷衍「嗯/哦/不知道」 | 眼睛半睁，嘴角下垂，慢慢歪头 |
+### 重新生成模型的完整命令
 
-**实现方式**：表情不是关键帧动画，而是一组连续参数——眼睛开合、眉毛角度、眉毛高低、嘴张开度、嘴角弧度、歪头角度、腮红强度、瞳孔偏移。每个表情给出这组参数的目标值，渲染时每帧朝目标插值 16%，所以表情变化是滑过去的，不会硬跳。换表情时身体节奏（energy）也跟着变，开心时脑袋晃得厉害，无聊时几乎不动。
+```powershell
+# 1. 环境（E 盘，不占 C 盘）
+python -m venv E:\Dev\triposr-venv
+E:\Dev\triposr-venv\Scripts\pip install torch==2.4.1 torchvision==0.19.1 --index-url https://download.pytorch.org/whl/cu121
+E:\Dev\triposr-venv\Scripts\pip install omegaconf Pillow einops trimesh rembg huggingface-hub "imageio[ffmpeg]" xatlas moderngl scikit-image transformers==4.35.0 onnxruntime
 
-表情 2.8 秒后自动回到平常；点小猪也会触发。另外有随时自动眨眼（每 4.4 秒一次）。
+# 2. 权重（hf-mirror，断点续传）
+curl -L -C - -o E:\Dev\triposr-weights\model.ckpt https://hf-mirror.com/stabilityai/TripoSR/resolve/main/model.ckpt
 
-**挥手**：`renderer.wave(ms)` 会让左胳膊绕自身中心转到 -140°，手跟着胳膊末端走，抬起来后左右摆。开场问候和开心的时候会挥手。
+# 3. 推理
+$env:HF_HUB_OFFLINE=1; $env:TRANSFORMERS_OFFLINE=1
+python run.py E:\EvilShao\gen-input-pig.png --pretrained-model-name-or-path E:\Dev\triposr-weights `
+  --output-dir E:\EvilShao\gen2 --model-save-format glb --mc-resolution 384 --no-remove-bg
+```
 
-判断顺序有讲究：先看怼人再看惊讶，因为「我的天，你可以闭嘴了」里两个关键词都有，得判成生气才算对。
+### 已知瑕疵
 
-**调试图**（只在 debug 包生效）：
+- 左胳膊（画面左侧）有一片三角形的绿色拉丝，是投影采样在细几何体上拉伸造成的
+- 脚底下还残留一条很细的粉色影子
+- 背面是猜的，颜色靠最近邻补，不如正面
+
+### 调试图（只在 debug 包生效）
 
 ```bash
 adb shell am start -n com.unclema123.evilshao/.MainActivity --es mood happy
 # mood 可取 neutral / happy / angry / surprised / shy / bored
 ```
-
-**没做的**：拉链、缝线、口袋、布料褶皱——我们只有球体/圆柱/圆锥/方盒四种几何体，做不出布料质感，硬凹会很难看。
 
 ## 和桌面版的关系
 
