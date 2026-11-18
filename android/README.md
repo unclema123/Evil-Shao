@@ -382,8 +382,11 @@ AI
    - `torchmcubes` 是 CUDA 扩展，Windows 要装 CUDA Toolkit 才能编译 → 换成 `scikit-image` 的 marching cubes，慢几秒但零编译
    - `trimesh 4.0.5` 和 numpy 2.x 不兼容（`ndarray.ptp` 被删）→ 升级 trimesh
 4. **构图归一化**：TripoSR 是按「物体占画面 85%、灰底、512×512」训练的。`--no-remove-bg` 会跳过这步预处理，直接喂原图出来是一团泥。所以自己按它的规则做了抠图 + 缩放 + 灰底合成。
-5. **颜色是投上去的**：模型自带顶点色里 43% 是灰的（单图看不到背面，模型只能猜）。所以把参考图按「正交投影 → 512 画布」的映射投到顶点上，正面 35% 的顶点拿到了原图真实颜色（眼睛、腮红、嘴、牙齿都是从图里采的），剩下的用最近邻补。
-6. **清理**：只留最大连通块（去悬空碎片）、切掉脚底的投影圆盘、删掉底部的影子三角。
+5. **颜色是按角度从三视图投上去的**：模型自带顶点色约 40% 是灰的（单图看不到背面）。现在用**正面 / 侧面 / 背面**三张参考图分别投影，每个顶点按自己法线的方位角去对应视角取样：
+   - 正面图覆盖 ±85°，背面图覆盖 180°±85°，侧视图只在 ±38° 窗口内说话
+   - 侧视窗一开始开得太大，侧脸的颜色会渗到腮帮子上（实测右脸发蓝），收窄后正常
+   - 灰底判为「没采到」；画面最底部的暗色是原图的地面阴影也要拒——但瞳孔本来就是暗的，所以「拒暗色」只在画面最下方生效，否则眼睛会被抹掉
+6. **清理**：只留最大连通块（去悬空碎片）、砍掉底部水平地面、砍掉灰色地面片、砍掉脚下阴影三角。
 
 ### 渲染
 
@@ -422,17 +425,28 @@ E:\Dev\triposr-venv\Scripts\pip install omegaconf Pillow einops trimesh rembg hu
 # 2. 权重（hf-mirror，断点续传）
 curl -L -C - -o E:\Dev\triposr-weights\model.ckpt https://hf-mirror.com/stabilityai/TripoSR/resolve/main/model.ckpt
 
-# 3. 推理
+# 3. 推理（三视图里只要正面这一张做几何）
 $env:HF_HUB_OFFLINE=1; $env:TRANSFORMERS_OFFLINE=1
-python run.py E:\EvilShao\gen-input-pig.png --pretrained-model-name-or-path E:\Dev\triposr-weights `
-  --output-dir E:\EvilShao\gen2 --model-save-format glb --mc-resolution 384 --no-remove-bg
+python run.py E:\EvilShao\ref-front-512.png --pretrained-model-name-or-path E:\Dev\triposr-weights `
+  --output-dir E:\EvilShao\gen --model-save-format glb --mc-resolution 384 --no-remove-bg
+
+# 4. 摆正 + 三视图上色 + 清理 + 导出（脚本在 tools/build_pig.py）
+python E:\EvilShao\tools\build_pig.py `
+  E:\EvilShao\gen\0\mesh.glb `
+  E:\EvilShao\android\app\src\main\assets\pig.glb `
+  E:\EvilShao\ref-front-512.png E:\EvilShao\ref-side-512.png E:\EvilShao\ref-back-512.png `
+  --views
 ```
+
+`--views` 会额外在输出目录旁边渲染 正面 / 45° / 侧面 / 背面 四张预览图，改参数时不用装模拟器就能看效果。
 
 ### 已知瑕疵
 
-- 左胳膊（画面左侧）有一片三角形的绿色拉丝，是投影采样在细几何体上拉伸造成的
-- 脚底下还残留一条很细的粉色影子
-- 背面是猜的，颜色靠最近邻补，不如正面
+- 画面左侧胳膊有一片三角形的绿色拉丝：细几何体上投影采样被拉伸
+- 脚底下残留一条很细的影子线
+- 侧视图只在 ±38° 窗口内生效，窗口外靠正/背两图过渡，所以正侧方（90° 附近）细节最弱
+- 耳朵在手挡住的那一侧被重建成了扁片（单图生成看不到被遮挡的结构）
+
 
 ### 调试图（只在 debug 包生效）
 
