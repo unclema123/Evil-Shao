@@ -31,10 +31,6 @@ class MainActivity : Activity() {
     private lateinit var titleView: TextView
     private lateinit var menuPanel: LinearLayout
     private lateinit var scrim: View
-    private lateinit var miRecord: TextView
-    private lateinit var miLearn: TextView
-    private lateinit var miName: TextView
-    private lateinit var miAi: TextView
     private lateinit var renderer: PigRenderer
     private lateinit var quotes: Quotes
     private lateinit var chatLog: ChatLog
@@ -83,10 +79,6 @@ class MainActivity : Activity() {
         titleView = findViewById(R.id.title)
         menuPanel = findViewById(R.id.menuPanel)
         scrim = findViewById(R.id.scrim)
-        miRecord = findViewById(R.id.mi_record)
-        miLearn = findViewById(R.id.mi_learn)
-        miName = findViewById(R.id.mi_name)
-        miAi = findViewById(R.id.mi_ai)
         val menuBtn = findViewById<TextView>(R.id.menu)
         val send = findViewById<Button>(R.id.send)
 
@@ -102,20 +94,20 @@ class MainActivity : Activity() {
         }
         menuBtn.setOnClickListener { toggleMenu() }
         scrim.setOnClickListener { closeMenu() }
-        findViewById<TextView>(R.id.mi_close).setOnClickListener { closeMenu() }
-        findViewById<View>(R.id.row_record).setOnClickListener {
+        findViewById<TextView>(R.id.item_close).setOnClickListener { closeMenu() }
+        findViewById<TextView>(R.id.item_record).setOnClickListener {
             closeMenu()
             showHistory()
         }
-        findViewById<View>(R.id.row_learn).setOnClickListener {
+        findViewById<TextView>(R.id.item_learn).setOnClickListener {
             closeMenu()
             showLearner()
         }
-        findViewById<View>(R.id.row_name).setOnClickListener {
+        findViewById<TextView>(R.id.item_name).setOnClickListener {
             closeMenu()
             showNameSettings(firstRun = false)
         }
-        findViewById<View>(R.id.row_ai).setOnClickListener {
+        findViewById<TextView>(R.id.item_ai).setOnClickListener {
             closeMenu()
             showAiSettings()
         }
@@ -283,16 +275,8 @@ class MainActivity : Activity() {
         }.start()
     }
 
+    /** 面板改成纯文字入口，不再显示状态；保留这个函数给各处统一刷新调用 */
     private fun updateBadges() {
-        val n = chatLog.count()
-        miRecord.text = if (n > 0) "$n 条" else "—"
-        miLearn.text = when {
-            learner.analyzed == 0 -> "—"
-            quotes.invented.isEmpty() -> "${learner.feedbacks} 反馈"
-            else -> "${learner.feedbacks} 反馈 · ${quotes.invented.size} 新句"
-        }
-        miName.text = "${names.me} / ${names.her}"
-        miAi.text = if (llm.isConfigured()) "已启用" else "未启用"
     }
 
     private fun toggleMenu() {
