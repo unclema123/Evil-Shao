@@ -67,6 +67,41 @@ class Mesh private constructor(val data: FloatBuffer, val vertexCount: Int) {
         }
 
         /**
+         * 长方体，中心在原点。用来做眉毛这种硬边小零件。
+         */
+        fun box(w: Float, h: Float, d: Float): Mesh {
+            val v = ArrayList<Float>(72)
+            val x = w / 2f
+            val y = h / 2f
+            val z = d / 2f
+
+            fun quad(a: FloatArray, b: FloatArray, c: FloatArray, dd: FloatArray) {
+                putTri(v, a, b, c)
+                putTri(v, a, c, dd)
+            }
+
+            // +Z
+            quad(floatArrayOf(-x, -y, z, 0f, 0f, 1f), floatArrayOf(x, -y, z, 0f, 0f, 1f),
+                 floatArrayOf(x, y, z, 0f, 0f, 1f), floatArrayOf(-x, y, z, 0f, 0f, 1f))
+            // -Z
+            quad(floatArrayOf(x, -y, -z, 0f, 0f, -1f), floatArrayOf(-x, -y, -z, 0f, 0f, -1f),
+                 floatArrayOf(-x, y, -z, 0f, 0f, -1f), floatArrayOf(x, y, -z, 0f, 0f, -1f))
+            // +X
+            quad(floatArrayOf(x, -y, z, 1f, 0f, 0f), floatArrayOf(x, -y, -z, 1f, 0f, 0f),
+                 floatArrayOf(x, y, -z, 1f, 0f, 0f), floatArrayOf(x, y, z, 1f, 0f, 0f))
+            // -X
+            quad(floatArrayOf(-x, -y, -z, -1f, 0f, 0f), floatArrayOf(-x, -y, z, -1f, 0f, 0f),
+                 floatArrayOf(-x, y, z, -1f, 0f, 0f), floatArrayOf(-x, y, -z, -1f, 0f, 0f))
+            // +Y
+            quad(floatArrayOf(-x, y, z, 0f, 1f, 0f), floatArrayOf(x, y, z, 0f, 1f, 0f),
+                 floatArrayOf(x, y, -z, 0f, 1f, 0f), floatArrayOf(-x, y, -z, 0f, 1f, 0f))
+            // -Y
+            quad(floatArrayOf(-x, -y, -z, 0f, -1f, 0f), floatArrayOf(x, -y, -z, 0f, -1f, 0f),
+                 floatArrayOf(x, -y, z, 0f, -1f, 0f), floatArrayOf(-x, -y, z, 0f, -1f, 0f))
+            return build(v)
+        }
+
+        /**
          * 圆柱，轴沿 Y，中心在原点。用极小的半径就能当细杆（胳膊腿尾巴）。
          */
         fun cylinder(radius: Float, height: Float, segments: Int = 26): Mesh {

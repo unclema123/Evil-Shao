@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.graphics.Color
 import android.opengl.GLSurfaceView
 import android.os.Bundle
@@ -120,6 +121,27 @@ class MainActivity : Activity() {
         }
 
         ui.postDelayed({ say("……你来啦。") }, 500)
+
+        debugMood()
+    }
+
+    /**
+     * 调试图专用：adb 启动时带 --es mood happy 就能让她停在某个表情上，
+     * 方便截图对比。只在 debuggable 包里生效。
+     */
+    private fun debugMood() {
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
+        val want = intent?.getStringExtra("mood")?.lowercase() ?: return
+        val m = when (want) {
+            "neutral" -> PigRenderer.Mood.NEUTRAL
+            "happy" -> PigRenderer.Mood.HAPPY
+            "angry" -> PigRenderer.Mood.ANGRY
+            "surprised" -> PigRenderer.Mood.SURPRISED
+            "shy" -> PigRenderer.Mood.SHY
+            "bored" -> PigRenderer.Mood.BORED
+            else -> return
+        }
+        ui.postDelayed({ renderer.show(m, 600_000L) }, 300)
     }
 
     override fun onResume() {
@@ -231,11 +253,41 @@ class MainActivity : Activity() {
     private fun afterReply(reply: String) {
         chatLog.append("她", reply)
         say(reply)
+        renderer.show(moodFor(reply))
         updateBadges()
         sinceTrain++
         if (sinceTrain >= 12) {
             sinceTrain = 0
             trainAsync(showToast = false)
+        }
+    }
+
+    /**
+     * 看她说了什么，决定露什么表情。
+     *
+     * 顺序有讲究：先判断怼人和惊讶，因为「你闭嘴吧」里也可能带个感叹号，
+     * 放到后面就会被当成长辈式平静。
+     */
+    private fun moodFor(reply: String): PigRenderer.Mood {
+        val t = reply.trim()
+        if (t.isEmpty()) return PigRenderer.Mood.NEUTRAL
+
+        val angry = listOf("闭嘴", "傻子", "有病", "烦", "起开", "滚", "反弹", "你才", "少来", "无聊", "幼稚")
+        val surprised = listOf("我的天", "窝趣", "卧槽", "天哪", "真的假的", "不会吧", "什么鬼", "离谱")
+        val happy = listOf("哈哈", "嘻嘻", "笑死", "嘿嘿", "好耶", "开心", "好玩", "有意思")
+        val shy = listOf("人美心善", "我大度", "面子", "谢谢", "夸", "害羞", "哪有", "讨厌")
+        val bored = listOf("不知道", "随便", "行吧", "算了", "无聊", "嗯", "哦", "没意思")
+
+        fun hit(list: List<String>) = list.any { t.contains(it) }
+
+        return when {
+            hit(angry) -> PigRenderer.Mood.ANGRY
+            hit(surprised) -> PigRenderer.Mood.SURPRISED
+            hit(happy) -> PigRenderer.Mood.HAPPY
+            hit(shy) -> PigRenderer.Mood.SHY
+            // 短促的敷衍（嗯、哦、……）才判无聊，长了就不是敷衍
+            hit(bored) && t.length <= 6 -> PigRenderer.Mood.BORED
+            else -> PigRenderer.Mood.NEUTRAL
         }
     }
 
@@ -745,6 +797,7 @@ class MainActivity : Activity() {
                         val line = style.adapt(quotes.randomSignature())
                         chatLog.append("她", line)
                         say(line)
+                        renderer.show(moodFor(line))
                         updateBadges()
                     }
                 }
