@@ -533,9 +533,6 @@ class MainActivity : Activity() {
             addView(mkButton("再造几句").apply {
                 setOnClickListener { inventMore() }
             })
-            addView(mkButton("接AI").apply {
-                setOnClickListener { showAiSettings() }
-            })
             addView(mkButton("重置").apply {
                 setOnClickListener { confirmResetLearning() }
             })
