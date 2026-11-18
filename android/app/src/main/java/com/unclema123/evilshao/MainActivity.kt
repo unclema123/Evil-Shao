@@ -28,9 +28,13 @@ class MainActivity : Activity() {
     private lateinit var gl: GLSurfaceView
     private lateinit var bubble: TextView
     private lateinit var input: EditText
-    private lateinit var recordView: TextView
-    private lateinit var learnView: TextView
     private lateinit var titleView: TextView
+    private lateinit var menuPanel: LinearLayout
+    private lateinit var scrim: View
+    private lateinit var miRecord: TextView
+    private lateinit var miLearn: TextView
+    private lateinit var miName: TextView
+    private lateinit var miAi: TextView
     private lateinit var renderer: PigRenderer
     private lateinit var quotes: Quotes
     private lateinit var chatLog: ChatLog
@@ -76,9 +80,14 @@ class MainActivity : Activity() {
 
         bubble = findViewById(R.id.bubble)
         input = findViewById(R.id.input)
-        recordView = findViewById(R.id.record)
-        learnView = findViewById(R.id.learn)
         titleView = findViewById(R.id.title)
+        menuPanel = findViewById(R.id.menuPanel)
+        scrim = findViewById(R.id.scrim)
+        miRecord = findViewById(R.id.mi_record)
+        miLearn = findViewById(R.id.mi_learn)
+        miName = findViewById(R.id.mi_name)
+        miAi = findViewById(R.id.mi_ai)
+        val menuBtn = findViewById<TextView>(R.id.menu)
         val send = findViewById<Button>(R.id.send)
 
         titleView.text = getString(R.string.app_name)
@@ -91,8 +100,25 @@ class MainActivity : Activity() {
             submit()
             true
         }
-        recordView.setOnClickListener { showHistory() }
-        learnView.setOnClickListener { showLearner() }
+        menuBtn.setOnClickListener { toggleMenu() }
+        scrim.setOnClickListener { closeMenu() }
+        findViewById<TextView>(R.id.mi_close).setOnClickListener { closeMenu() }
+        miRecord.setOnClickListener {
+            closeMenu()
+            showHistory()
+        }
+        miLearn.setOnClickListener {
+            closeMenu()
+            showLearner()
+        }
+        miName.setOnClickListener {
+            closeMenu()
+            showNameSettings(firstRun = false)
+        }
+        miAi.setOnClickListener {
+            closeMenu()
+            showAiSettings()
+        }
 
         trainAsync(showToast = false)
 
@@ -107,6 +133,16 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         updateBadges()
+    }
+
+    @Deprecated("老版本兼容，用 OnBackPressedDispatcher 更正规")
+    override fun onBackPressed() {
+        if (menuPanel.visibility == View.VISIBLE) {
+            closeMenu()
+        } else {
+            @Suppress("DEPRECATION")
+            super.onBackPressed()
+        }
     }
 
     private fun submit() {
@@ -249,13 +285,37 @@ class MainActivity : Activity() {
 
     private fun updateBadges() {
         val n = chatLog.count()
-        recordView.text = if (n > 0) "记录 $n" else "记录"
-        val ai = if (llm.isConfigured()) "AI " else ""
-        learnView.text = when {
-            quotes.invented.isNotEmpty() -> "学习 ${learner.feedbacks}·新句 ${quotes.invented.size} $ai".trim()
-            learner.analyzed > 0 -> "学习 ${learner.feedbacks} $ai".trim()
-            else -> "学习 $ai".trim()
+        miRecord.text = if (n > 0) "聊天记录 · $n 条" else "聊天记录"
+        miLearn.text = buildString {
+            append("学习")
+            if (learner.analyzed > 0) append(" · ${learner.feedbacks} 反馈")
+            if (quotes.invented.isNotEmpty()) append(" · 新句 ${quotes.invented.size}")
         }
+        miName.text = "改名字 · ${names.me} / ${names.her}"
+        miAi.text = if (llm.isConfigured()) "接 AI · 已启用" else "接 AI · 未启用"
+    }
+
+    private fun toggleMenu() {
+        if (menuPanel.visibility == View.VISIBLE) closeMenu() else openMenu()
+    }
+
+    private fun openMenu() {
+        updateBadges()
+        menuPanel.visibility = View.VISIBLE
+        scrim.visibility = View.VISIBLE
+        menuPanel.alpha = 0f
+        menuPanel.translationY = -12f
+        menuPanel.animate().alpha(1f).translationY(0f).setDuration(150).start()
+    }
+
+    private fun closeMenu() {
+        if (menuPanel.visibility != View.VISIBLE) return
+        menuPanel.animate().alpha(0f).translationY(-12f).setDuration(120)
+            .withEndAction {
+                menuPanel.visibility = View.GONE
+                scrim.visibility = View.GONE
+            }
+            .start()
     }
 
     private fun say(text: String) {

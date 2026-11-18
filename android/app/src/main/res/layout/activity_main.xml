@@ -4,65 +4,21 @@
     android:layout_height="match_parent"
     android:background="#FDEAF0">
 
+    <!-- 第 1 层：3D 小猪 -->
     <android.opengl.GLSurfaceView
         android:id="@+id/gl"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top"
-        android:layout_marginStart="20dp"
-        android:layout_marginTop="18dp"
-        android:layout_marginEnd="20dp"
-        android:orientation="horizontal">
-
-        <TextView
-            android:id="@+id/title"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/app_name"
-            android:textColor="#6D4B57"
-            android:textSize="20sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/learn"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
-            android:background="@drawable/input_bg"
-            android:paddingStart="14dp"
-            android:paddingTop="6dp"
-            android:paddingEnd="14dp"
-            android:paddingBottom="6dp"
-            android:text="@string/learn"
-            android:textColor="#8C6A75"
-            android:textSize="13sp" />
-
-        <TextView
-            android:id="@+id/record"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:background="@drawable/input_bg"
-            android:paddingStart="14dp"
-            android:paddingTop="6dp"
-            android:paddingEnd="14dp"
-            android:paddingBottom="6dp"
-            android:text="@string/record"
-            android:textColor="#8C6A75"
-            android:textSize="13sp" />
-    </LinearLayout>
-
+    <!-- 第 2 层：她的气泡，往上提，给猪留出脸 -->
     <TextView
         android:id="@+id/bubble"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="86dp"
+        android:layout_marginTop="62dp"
         android:background="@drawable/bubble_bg"
+        android:elevation="3dp"
         android:maxWidth="280dp"
         android:paddingStart="18dp"
         android:paddingTop="12dp"
@@ -72,13 +28,15 @@
         android:textSize="15sp"
         android:visibility="gone" />
 
+    <!-- 第 3 层：底部输入 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:layout_marginStart="16dp"
         android:layout_marginEnd="16dp"
-        android:layout_marginBottom="26dp"
+        android:layout_marginBottom="42dp"
+        android:elevation="2dp"
         android:orientation="horizontal">
 
         <EditText
@@ -105,5 +63,98 @@
             android:text="@string/send"
             android:textColor="#FFFFFF"
             android:textSize="15sp" />
+    </LinearLayout>
+
+    <!-- 第 4 层：菜单展开时的遮罩，点一下就收 -->
+    <View
+        android:id="@+id/scrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#2A000000"
+        android:visibility="gone" />
+
+    <!-- 第 5 层：顶部栏（标题 + 一个菜单按钮） -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="18dp"
+        android:layout_marginEnd="20dp"
+        android:elevation="4dp"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/app_name"
+            android:textColor="#6D4B57"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/menu"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/input_bg"
+            android:paddingStart="16dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="4dp"
+            android:text="@string/menu"
+            android:textColor="#8C6A75"
+            android:textSize="17sp" />
+    </LinearLayout>
+
+    <!-- 第 6 层：左上角按列展开的菜单 -->
+    <LinearLayout
+        android:id="@+id/menuPanel"
+        android:layout_width="210dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="62dp"
+        android:background="@drawable/menu_bg"
+        android:elevation="12dp"
+        android:orientation="vertical"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/mi_record"
+            style="@style/MenuItem"
+            android:text="@string/record" />
+
+        <TextView
+            android:id="@+id/mi_learn"
+            style="@style/MenuItem"
+            android:text="@string/learn" />
+
+        <TextView
+            android:id="@+id/mi_name"
+            style="@style/MenuItem"
+            android:text="@string/menu_name" />
+
+        <TextView
+            android:id="@+id/mi_ai"
+            style="@style/MenuItem"
+            android:text="@string/menu_ai" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginStart="14dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginEnd="14dp"
+            android:layout_marginBottom="4dp"
+            android:background="#F0DCE3" />
+
+        <TextView
+            android:id="@+id/mi_close"
+            style="@style/MenuItem"
+            android:text="@string/menu_close" />
     </LinearLayout>
 </FrameLayout>

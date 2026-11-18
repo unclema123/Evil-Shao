@@ -5,4 +5,19 @@
     <string name="send">说</string>
     <string name="record">记录</string>
     <string name="learn">学习</string>
+    <string name="menu">≡</string>
+    <string name="menu_name">改名字</string>
+    <string name="menu_ai">接 AI</string>
+    <string name="menu_close">收起</string>
+
+    <style name="MenuItem">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:paddingStart">18dp</item>
+        <item name="android:paddingTop">11dp</item>
+        <item name="android:paddingEnd">18dp</item>
+        <item name="android:paddingBottom">11dp</item>
+        <item name="android:textColor">#6D4B57</item>
+        <item name="android:textSize">14sp</item>
+    </style>
 </resources>
