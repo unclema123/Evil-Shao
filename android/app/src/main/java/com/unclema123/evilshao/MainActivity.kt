@@ -39,6 +39,7 @@ class MainActivity : Activity() {
     private lateinit var names: Names
     private lateinit var web: WebSearch
     private lateinit var knowledge: Knowledge
+    private lateinit var style: StyleProfile
 
     private val ui = Handler(Looper.getMainLooper())
     private var sinceTrain = 0
@@ -52,6 +53,8 @@ class MainActivity : Activity() {
         names = Names(this)
         web = WebSearch()
         knowledge = Knowledge(this)
+        style = StyleProfile(this)
+        style.load()
         quotes = Quotes(this)
         chatLog = ChatLog(this)
         learner = Learner(this)
@@ -109,13 +112,15 @@ class MainActivity : Activity() {
         if (text.isEmpty()) return
         input.setText("")
         chatLog.append("我", text)
+        style.observe(text)
+        style.save()
         say("……")
         hideKeyboard()
 
         if (llm.isConfigured()) {
             ui.postDelayed({ askLlm(text) }, 260)
         } else {
-            ui.postDelayed({ afterReply(quotes.reply(text)) }, 520)
+            ui.postDelayed({ afterReply(style.adapt(quotes.reply(text))) }, 520)
         }
     }
 
@@ -148,7 +153,7 @@ class MainActivity : Activity() {
             }
 
             val reply = if (hits.isEmpty()) {
-                llm.chat(Persona.systemPrompt(quotes), userText)
+                llm.chat(Persona.systemPrompt(quotes, style.hint()), userText)
             } else {
                 llm.chat(Persona.researchPrompt(), Persona.materialPrompt(userText, hits))
             }
@@ -159,10 +164,10 @@ class MainActivity : Activity() {
                     if (hits.isNotEmpty()) {
                         knowledge.save(userText, clean, hits.map { it.url })
                     }
-                    afterReply(clean)
+                    afterReply(style.adapt(clean))
                     panelText?.text = learnPanelText()
                 } else {
-                    afterReply(quotes.reply(userText))
+                    afterReply(style.adapt(quotes.reply(userText)))
                 }
             }
         }.start()
@@ -171,13 +176,14 @@ class MainActivity : Activity() {
     private fun askLlmPlain(userText: String) {
         Thread {
             val reply = try {
-                llm.chat(Persona.systemPrompt(quotes), userText)
+                llm.chat(Persona.systemPrompt(quotes, style.hint()), userText)
             } catch (e: Exception) {
                 null
             }
             ui.post {
                 val clean = sanitize(reply, 40)
-                if (clean != null) afterReply(clean) else afterReply(quotes.reply(userText))
+                if (clean != null) afterReply(style.adapt(clean))
+                else afterReply(style.adapt(quotes.reply(userText)))
             }
         }.start()
     }
@@ -209,7 +215,10 @@ class MainActivity : Activity() {
     private fun trainAsync(showToast: Boolean) {
         Thread {
             try {
-                learner.train(chatLog.entries())
+                val entries = chatLog.entries()
+                learner.train(entries)
+                // 重新统计「你怎么说话」，纠正增量统计的漂移
+                style.rebuild(entries.filter { it.role == "我" }.map { it.message })
 
                 val known = HashSet<String>()
                 known.addAll(quotes.signatures)
@@ -228,7 +237,7 @@ class MainActivity : Activity() {
                 if (showToast) {
                     Toast.makeText(
                         this,
-                        "学完了：${learner.analyzed} 条对话，新句 ${quotes.invented.size} 句",
+                        "学完了：看了 ${style.samples} 句你的话，新句 ${quotes.invented.size} 句",
                         Toast.LENGTH_SHORT
                     ).show()
                 }
@@ -264,6 +273,8 @@ class MainActivity : Activity() {
 
     private fun learnPanelText(): String {
         val sb = StringBuilder(learner.report())
+        sb.append("\n\n── 你怎么说话（本地学的）──\n")
+        sb.append(style.summary())
         sb.append("\n\n── 自己造的新句 ──\n")
         if (quotes.invented.isEmpty()) {
             sb.append("（还没有，点「再造几句」让她想想）")
@@ -671,7 +682,7 @@ class MainActivity : Activity() {
                 }
                 MotionEvent.ACTION_UP -> {
                     if (travelled < 12f) {
-                        val line = quotes.randomSignature()
+                        val line = style.adapt(quotes.randomSignature())
                         chatLog.append("她", line)
                         say(line)
                         updateBadges()

@@ -6,12 +6,13 @@ package com.unclema123.evilshao
  */
 object Persona {
 
-    fun systemPrompt(quotes: Quotes): String {
+    fun systemPrompt(quotes: Quotes, styleHint: String = ""): String {
         val examples = quotes.signatures.take(30).joinToString("；")
+        val styleBlock = if (styleHint.isBlank()) "" else "\n（对方的说话习惯：$styleHint 回应要贴合这个节奏。）\n"
         return """
             你要扮演「邵珠佳」，网名 Whisper，山东德州某高校大学生，班级团支书。
             她说中文，说话极短、跳脱、爱自夸、爱跟人斗嘴。
-
+            $styleBlock
             硬性要求：
             1. 每条回复 3~16 个字，绝对不超过 20 个字。
             2. 只说一句话，不要解释、不要展开、不要反问式客套。
