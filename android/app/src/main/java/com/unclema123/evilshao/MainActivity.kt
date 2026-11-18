@@ -103,19 +103,19 @@ class MainActivity : Activity() {
         menuBtn.setOnClickListener { toggleMenu() }
         scrim.setOnClickListener { closeMenu() }
         findViewById<TextView>(R.id.mi_close).setOnClickListener { closeMenu() }
-        miRecord.setOnClickListener {
+        findViewById<View>(R.id.row_record).setOnClickListener {
             closeMenu()
             showHistory()
         }
-        miLearn.setOnClickListener {
+        findViewById<View>(R.id.row_learn).setOnClickListener {
             closeMenu()
             showLearner()
         }
-        miName.setOnClickListener {
+        findViewById<View>(R.id.row_name).setOnClickListener {
             closeMenu()
             showNameSettings(firstRun = false)
         }
-        miAi.setOnClickListener {
+        findViewById<View>(R.id.row_ai).setOnClickListener {
             closeMenu()
             showAiSettings()
         }
@@ -285,14 +285,14 @@ class MainActivity : Activity() {
 
     private fun updateBadges() {
         val n = chatLog.count()
-        miRecord.text = if (n > 0) "聊天记录 · $n 条" else "聊天记录"
-        miLearn.text = buildString {
-            append("学习")
-            if (learner.analyzed > 0) append(" · ${learner.feedbacks} 反馈")
-            if (quotes.invented.isNotEmpty()) append(" · 新句 ${quotes.invented.size}")
+        miRecord.text = if (n > 0) "$n 条" else "—"
+        miLearn.text = when {
+            learner.analyzed == 0 -> "—"
+            quotes.invented.isEmpty() -> "${learner.feedbacks} 反馈"
+            else -> "${learner.feedbacks} 反馈 · ${quotes.invented.size} 新句"
         }
-        miName.text = "改名字 · ${names.me} / ${names.her}"
-        miAi.text = if (llm.isConfigured()) "接 AI · 已启用" else "接 AI · 未启用"
+        miName.text = "${names.me} / ${names.her}"
+        miAi.text = if (llm.isConfigured()) "已启用" else "未启用"
     }
 
     private fun toggleMenu() {

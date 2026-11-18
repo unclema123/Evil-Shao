@@ -89,13 +89,13 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="12dp"
-            android:background="@drawable/input_bg"
+            android:background="@drawable/pill_bg"
             android:paddingStart="16dp"
             android:paddingTop="4dp"
             android:paddingEnd="16dp"
             android:paddingBottom="4dp"
             android:text="@string/menu"
-            android:textColor="#8C6A75"
+            android:textColor="#8A7A72"
             android:textSize="17sp" />
 
         <TextView
@@ -109,53 +109,162 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- 第 6 层：左上角按列展开的菜单 -->
+    <!-- 第 6 层：居中的面板 -->
     <LinearLayout
         android:id="@+id/menuPanel"
-        android:layout_width="210dp"
+        android:layout_width="272dp"
         android:layout_height="wrap_content"
-        android:layout_gravity="top|start"
-        android:layout_marginStart="20dp"
-        android:layout_marginTop="62dp"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="64dp"
         android:background="@drawable/menu_bg"
-        android:elevation="12dp"
+        android:elevation="14dp"
         android:orientation="vertical"
-        android:paddingTop="6dp"
+        android:paddingTop="16dp"
         android:paddingBottom="6dp"
         android:visibility="gone">
 
         <TextView
-            android:id="@+id/mi_record"
-            style="@style/MenuItem"
-            android:text="@string/record" />
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:letterSpacing="0.22"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:paddingBottom="14dp"
+            android:text="@string/menu_title"
+            android:textColor="#BCAFA8"
+            android:textSize="10sp" />
 
-        <TextView
-            android:id="@+id/mi_learn"
-            style="@style/MenuItem"
-            android:text="@string/learn" />
+        <LinearLayout
+            android:id="@+id/row_record"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="24dp"
+            android:paddingTop="13dp"
+            android:paddingEnd="24dp"
+            android:paddingBottom="13dp">
 
-        <TextView
-            android:id="@+id/mi_name"
-            style="@style/MenuItem"
-            android:text="@string/menu_name" />
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/record"
+                android:textColor="#413A36"
+                android:textSize="14sp" />
 
-        <TextView
-            android:id="@+id/mi_ai"
-            style="@style/MenuItem"
-            android:text="@string/menu_ai" />
+            <TextView
+                android:id="@+id/mi_record"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#A79C97"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/row_learn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="24dp"
+            android:paddingTop="13dp"
+            android:paddingEnd="24dp"
+            android:paddingBottom="13dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/learn"
+                android:textColor="#413A36"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/mi_learn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#A79C97"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/row_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="24dp"
+            android:paddingTop="13dp"
+            android:paddingEnd="24dp"
+            android:paddingBottom="13dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/menu_name"
+                android:textColor="#413A36"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/mi_name"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#A79C97"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/row_ai"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="24dp"
+            android:paddingTop="13dp"
+            android:paddingEnd="24dp"
+            android:paddingBottom="13dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/menu_ai"
+                android:textColor="#413A36"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/mi_ai"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#A79C97"
+                android:textSize="13sp" />
+        </LinearLayout>
 
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
-            android:layout_marginStart="14dp"
-            android:layout_marginTop="4dp"
-            android:layout_marginEnd="14dp"
+            android:layout_marginStart="24dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="24dp"
             android:layout_marginBottom="4dp"
-            android:background="#F0DCE3" />
+            android:background="#F0E9E4" />
 
         <TextView
             android:id="@+id/mi_close"
-            style="@style/MenuItem"
-            android:text="@string/menu_close" />
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?android:attr/selectableItemBackground"
+            android:gravity="center"
+            android:paddingTop="13dp"
+            android:paddingBottom="13dp"
+            android:text="@string/menu_close"
+            android:textColor="#9C8C84"
+            android:textSize="13sp" />
     </LinearLayout>
 </FrameLayout>
