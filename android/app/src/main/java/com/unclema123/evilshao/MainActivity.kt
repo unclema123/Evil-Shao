@@ -120,7 +120,10 @@ class MainActivity : Activity() {
             ui.postDelayed({ showNameSettings(firstRun = true) }, 900)
         }
 
-        ui.postDelayed({ say("……你来啦。") }, 500)
+        ui.postDelayed({
+            say("……你来啦。")
+            renderer.wave(2600L)
+        }, 500)
 
         debugMood()
     }
@@ -253,7 +256,9 @@ class MainActivity : Activity() {
     private fun afterReply(reply: String) {
         chatLog.append("她", reply)
         say(reply)
-        renderer.show(moodFor(reply))
+        val mood = moodFor(reply)
+        renderer.show(mood)
+        if (mood == PigRenderer.Mood.HAPPY) renderer.wave(2000L)
         updateBadges()
         sinceTrain++
         if (sinceTrain >= 12) {

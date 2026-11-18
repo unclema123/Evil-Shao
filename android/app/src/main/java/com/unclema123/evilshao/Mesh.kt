@@ -67,6 +67,67 @@ class Mesh private constructor(val data: FloatBuffer, val vertexCount: Int) {
         }
 
         /**
+         * 圆锥，顶点在 +Y，底面在 -Y。做恐龙背刺、帽檐牙齿用。
+         */
+        fun cone(radius: Float, height: Float, segments: Int = 16): Mesh {
+            val v = ArrayList<Float>(segments * 18)
+            val hy = height / 2f
+            val apex = floatArrayOf(0f, hy, 0f, 0f, 1f, 0f)
+            for (j in 0 until segments) {
+                val a0 = j.toFloat() / segments * 2f * Math.PI.toFloat()
+                val a1 = (j + 1).toFloat() / segments * 2f * Math.PI.toFloat()
+                val x0 = radius * sin(a0); val z0 = radius * cos(a0)
+                val x1 = radius * sin(a1); val z1 = radius * cos(a1)
+                // 侧面的法线：径向 + 一点向上的分量
+                val nx0 = sin(a0) * hy; val nz0 = cos(a0) * hy
+                val nx1 = sin(a1) * hy; val nz1 = cos(a1) * hy
+                val b0 = floatArrayOf(x0, -hy, z0, nx0, radius, nz0)
+                val b1 = floatArrayOf(x1, -hy, z1, nx1, radius, nz1)
+                putTri(v, b0, b1, apex)
+                // 底盖
+                val cB = floatArrayOf(0f, -hy, 0f, 0f, -1f, 0f)
+                val d0 = floatArrayOf(x0, -hy, z0, 0f, -1f, 0f)
+                val d1 = floatArrayOf(x1, -hy, z1, 0f, -1f, 0f)
+                putTri(v, cB, d1, d0)
+            }
+            return build(v)
+        }
+
+        /**
+         * 正面开了一个圆口的球壳（像兜帽）。口子朝向 +Z，
+         * 开口半径 = radius * sin(holeDeg)。
+         *
+         * 普通球体套在头上会把脸一起盖住，球壳才能留出脸的位置。
+         */
+        fun sphereOpen(radius: Float, holeDeg: Float, rings: Int = 26, sectors: Int = 32): Mesh {
+            val v = ArrayList<Float>(rings * sectors * 36)
+            val hole = holeDeg * Math.PI.toFloat() / 180f
+            for (i in 0 until rings) {
+                val phi0 = hole + (Math.PI.toFloat() - hole) * i / rings
+                val phi1 = hole + (Math.PI.toFloat() - hole) * (i + 1) / rings
+                for (j in 0 until sectors) {
+                    val th0 = j.toFloat() / sectors * 2f * Math.PI.toFloat()
+                    val th1 = (j + 1).toFloat() / sectors * 2f * Math.PI.toFloat()
+                    // 极点朝向 +Z：x = r sinφ cosθ, y = r sinφ sinθ, z = r cosφ
+                    fun pt(phi: Float, th: Float): FloatArray {
+                        val sp = sin(phi)
+                        val x = radius * sp * kotlin.math.cos(th)
+                        val y = radius * sp * sin(th)
+                        val z = radius * kotlin.math.cos(phi)
+                        return floatArrayOf(x, y, z, x / radius, y / radius, z / radius)
+                    }
+                    val a = pt(phi0, th0)
+                    val b = pt(phi0, th1)
+                    val c = pt(phi1, th1)
+                    val d = pt(phi1, th0)
+                    putTri(v, a, b, c)
+                    putTri(v, a, c, d)
+                }
+            }
+            return build(v)
+        }
+
+        /**
          * 长方体，中心在原点。用来做眉毛这种硬边小零件。
          */
         fun box(w: Float, h: Float, d: Float): Mesh {

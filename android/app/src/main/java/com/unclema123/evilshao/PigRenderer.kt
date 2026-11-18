@@ -37,6 +37,16 @@ class PigRenderer : GLSurfaceView.Renderer {
     @Volatile
     private var moodUntil = 0L
 
+    @Volatile
+    private var waveUntil = 0L
+
+    private var waveAmt = 0f
+
+    /** 抬手挥一挥，ms 毫秒后放下 */
+    fun wave(ms: Long = 2400L) {
+        waveUntil = System.currentTimeMillis() + ms
+    }
+
     /** 换表情，ms 毫秒后自动回到平常表情 */
     fun show(m: Mood, ms: Long = 2800L) {
         if (m != mood) android.util.Log.d("EvilShao", "表情 → $m")
@@ -138,11 +148,13 @@ class PigRenderer : GLSurfaceView.Renderer {
             vec3 n = normalize(vN);
             vec3 lightDir = normalize(vec3(-0.45, 0.75, 0.85));
             float diff = max(dot(n, lightDir), 0.0);
+            // 补光：从右前方补一层，免得右半边脸和猪鼻全掉进阴影里
+            float fill = max(dot(n, normalize(vec3(0.65, 0.10, 0.75))), 0.0) * 0.26;
             vec3 eye = normalize(vec3(0.0, 0.3, 5.2) - vW);
             vec3 halfV = normalize(lightDir + eye);
             float spec = pow(max(dot(n, halfV), 0.0), 60.0) * 0.22;
             float rim = pow(1.0 - max(dot(n, eye), 0.0), 3.0) * 0.14;
-            vec3 col = uColor * (0.48 + 0.66 * diff) + vec3(spec + rim);
+            vec3 col = uColor * (0.50 + 0.58 * diff + fill) + vec3(spec + rim);
             gl_FragColor = vec4(col, 1.0);
         }
     """.trimIndent()
@@ -198,6 +210,10 @@ class PigRenderer : GLSurfaceView.Renderer {
             Mood.NEUTRAL -> 1f
         }
         energy += (targetEnergy - energy) * 0.08f
+
+        // 挥手：抬手和放下都做插值，不会瞬间抬起
+        val waveTarget = if (System.currentTimeMillis() < waveUntil) 1f else 0f
+        waveAmt += (waveTarget - waveAmt) * 0.12f
 
         Matrix.setIdentityM(root, 0)
         Matrix.rotateM(root, 0, pitch, 1f, 0f, 0f)
@@ -278,6 +294,12 @@ class PigRenderer : GLSurfaceView.Renderer {
         val blushC = Triple(0.973f, 0.612f, 0.702f)
         val lipC = Triple(0.451f, 0.263f, 0.318f)
         val cavityC = Triple(0.545f, 0.216f, 0.318f)
+        // 恐龙连帽衫的配色
+        val hoodGreen = Triple(0.435f, 0.553f, 0.365f)
+        val hoodDark = Triple(0.345f, 0.447f, 0.278f)
+        val bellyC = Triple(0.898f, 0.871f, 0.596f)
+        val toothC = Triple(0.988f, 0.976f, 0.945f)
+        val hoofC = Triple(0.400f, 0.290f, 0.235f)
 
         fun part(mesh: Mesh, c: Triple<Float, Float, Float>, x: Float, y: Float, z: Float,
                  rx: Float = 0f, ry: Float = 0f, rz: Float = 0f,
@@ -287,9 +309,9 @@ class PigRenderer : GLSurfaceView.Renderer {
             Part(mesh, c.first, c.second, c.third, x, y, z, rx, ry, rz, sx, sy, sz, onHead, anim)
 
         val list = ArrayList<Part>()
-        val headR = 1.00f
-        val headY = 0.52f
-        val headZ = -0.02f
+        val headR = 0.96f
+        val headY = 0.50f
+        val headZ = 0.06f
 
         /** 头表面在某一点的 z，五官都按它来贴，改头的半径也不会埋进脸里 */
         fun surfZ(x: Float, y: Float): Float {
@@ -299,30 +321,59 @@ class PigRenderer : GLSurfaceView.Renderer {
             return headZ + if (r2 > 0f) kotlin.math.sqrt(r2) else 0f
         }
 
-        // ── 身体（比头小不少，Q 版比例）──
+        // ── 身体 ──
         list += part(Mesh.sphere(0.80f, 24, 30), skin, 0f, -0.78f, 0f)
 
-        // ── 头 ──
+        // ── 恐龙连帽衫：绿色外壳，底下一个圆口露出粉色下身 ──
+        val jacket = part(Mesh.sphereOpen(0.90f, 50f, 22, 28), hoodGreen, 0f, -0.70f, 0f, rx = 90f)
+        jacket.anim = { t, p -> p.ry = sin(t * 0.5f) * 2f }
+        list += jacket
+
+        // 鹅黄肚皮面板（压在衣服前面）
+        list += part(Mesh.sphere(0.45f, 18, 22), bellyC, 0f, -0.72f, 0.58f,
+            sx = 0.95f, sy = 1.05f, sz = 0.75f)
+
+        // ── 头（脸盘）──
         list += part(Mesh.sphere(headR, 28, 34), skin, 0f, headY, headZ, onHead = true)
 
-        // ── 耳朵 ──
-        val earL = part(Mesh.sphere(0.30f, 18, 22), skinDeep, -0.60f, 1.20f, 0.00f,
-            rz = -26f, onHead = true)
-        earL.anim = { t, p -> p.rz = -26f + sin(t * 2.5f) * 9f }
-        val earR = part(Mesh.sphere(0.30f, 18, 22), skinDeep, 0.60f, 1.20f, 0.00f,
-            rz = 26f, onHead = true)
-        earR.anim = { t, p -> p.rz = 26f - sin(t * 2.5f) * 9f }
+        // ── 兜帽：正面开圆口，脸从口子里露出来 ──
+        val hood = part(Mesh.sphereOpen(1.06f, 40f, 26, 34), hoodGreen, 0f, 0.54f, -0.22f,
+            onHead = true)
+        list += hood
+
+        // 兜帽上沿的牙齿
+        for (k in 0 until 6) {
+            val deg = 38f + k * 20f
+            val rad = deg * Math.PI.toFloat() / 180f
+            val rho = 1.06f * sin(40f * Math.PI.toFloat() / 180f) + 0.02f
+            val tooth = part(Mesh.cone(0.052f, 0.17f, 12), toothC,
+                rho * kotlin.math.cos(rad), 0.54f + rho * sin(rad),
+                -0.22f + 1.06f * kotlin.math.cos(40f * Math.PI.toFloat() / 180f) - 0.04f,
+                rx = 180f, onHead = true)
+            tooth.anim = { _, p -> p.rx = 180f + face.headTilt * 0.4f }
+            list += tooth
+        }
+
+        // 恐龙背刺（沿头顶往后的三根）
+        val spikes = listOf(
+            Triple(0f, 1.58f, -0.10f) to Triple(0.135f, 0.30f, -26f),
+            Triple(0f, 1.50f, -0.44f) to Triple(0.115f, 0.26f, -38f),
+            Triple(0f, 1.33f, -0.72f) to Triple(0.095f, 0.22f, -50f)
+        )
+        for ((pos, sh) in spikes) {
+            list += part(Mesh.cone(sh.first, sh.second, 12), hoodDark,
+                pos.first, pos.second, pos.third, rx = sh.third, onHead = true)
+        }
+
+        // ── 耳朵（从兜帽两侧穿出来）──
+        val earL = part(Mesh.sphere(0.30f, 18, 22), skinDeep, -0.78f, 1.24f, -0.06f,
+            rz = -30f, onHead = true)
+        earL.anim = { t, p -> p.rz = -30f + sin(t * 2.5f) * 8f }
+        val earR = part(Mesh.sphere(0.30f, 18, 22), skinDeep, 0.78f, 1.24f, -0.06f,
+            rz = 30f, onHead = true)
+        earR.anim = { t, p -> p.rz = 30f - sin(t * 2.5f) * 8f }
         list += earL
         list += earR
-
-        // ── 头顶呆毛 ──
-        val tuft = part(Mesh.sphere(0.115f, 12, 16), skinDeep, 0.03f, 1.42f, -0.04f, onHead = true)
-        tuft.anim = { t, p ->
-            p.px = 0.03f + sin(t * 1.9f) * 0.035f
-            p.rz = sin(t * 2.1f) * 12f
-        }
-        list += tuft
-        list += part(Mesh.sphere(0.085f, 10, 14), skinDeep, -0.07f, 1.31f, 0.10f, onHead = true)
 
         // ── 眼睛：白眼球 + 瞳孔 + 高光 ──
         val eyeY = 0.66f
@@ -416,24 +467,39 @@ class PigRenderer : GLSurfaceView.Renderer {
             list += dot
         }
 
-        // ── 胳膊 + 手 ──
+        // ── 胳膊（绿色袖子）+ 手（粉色，跟着胳膊转）──
         for (side in intArrayOf(-1, 1)) {
-            val arm = part(Mesh.cylinder(0.125f, 0.60f, 20), skin,
-                0.79f * side, -0.52f, 0.02f, rz = -16f * side)
+            val armX = 0.79f * side
+            val armY = -0.52f
+            val restRz = 16f * side
+            val waveRz = -140f
+            val arm = part(Mesh.cylinder(0.145f, 0.60f, 20), hoodGreen, armX, armY, 0.02f, rz = restRz)
+            val hand = part(Mesh.sphere(0.145f, 14, 18), skin, armX, armY - 0.30f, 0.03f)
             arm.anim = { t, p ->
                 val swing = sin(t * 1.8f) * 4f * energy
-                p.px = 0.79f * side
-                p.py = -0.52f + sin(t * 1.8f + 1.2f) * 0.02f * energy
-                p.rz = -16f * side + swing * side
+                val w = if (side == -1) waveAmt else 0f
+                p.px = armX
+                p.py = armY + sin(t * 1.8f + 1.2f) * 0.02f * energy
+                p.rz = restRz + swing * side + (waveRz - restRz) * w +
+                    sin(t * 9f) * 12f * w
+            }
+            hand.anim = { t, p ->
+                val swing = sin(t * 1.8f) * 4f * energy
+                val w = if (side == -1) waveAmt else 0f
+                val rz = restRz + swing * side + (waveRz - restRz) * w + sin(t * 9f) * 12f * w
+                val rad = rz * Math.PI.toFloat() / 180f
+                p.px = armX + 0.30f * sin(rad)
+                p.py = armY + sin(t * 1.8f + 1.2f) * 0.02f * energy - 0.30f * kotlin.math.cos(rad)
+                p.rz = rz
             }
             list += arm
-            list += part(Mesh.sphere(0.145f, 14, 18), skin, 0.92f * side, -0.84f, 0.03f)
+            list += hand
         }
 
-        // ── 腿 + 脚 ──
+        // ── 腿 + 深色蹄子 ──
         for (side in intArrayOf(-1, 1)) {
             list += part(Mesh.cylinder(0.17f, 0.44f, 20), skin, 0.35f * side, -1.42f, 0f)
-            list += part(Mesh.sphere(0.185f, 14, 18), skinDeep,
+            list += part(Mesh.sphere(0.185f, 14, 18), hoofC,
                 0.35f * side, -1.62f, 0.06f, sx = 1f, sy = 0.75f, sz = 1.25f)
         }
 
