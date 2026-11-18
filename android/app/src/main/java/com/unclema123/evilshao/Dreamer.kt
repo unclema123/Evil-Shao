@@ -2,6 +2,7 @@ package com.unclema123.evilshao
 
 import android.content.Context
 import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import kotlin.random.Random
 
@@ -20,6 +21,9 @@ class Dreamer(context: Context) {
     private val rnd = Random(System.nanoTime())
 
     val invented = ArrayList<String>()
+
+    /** 每句自己造的话的质量分（0~100），造句时打分排序用 */
+    val quality = HashMap<String, Int>()
 
     private val openers = listOf(
         "我的天", "哎呀，我的妈呀", "我去", "窝趣", "呵呵", "噢", "嗯", "……"
@@ -40,10 +44,21 @@ class Dreamer(context: Context) {
 
     fun load() {
         invented.clear()
+        quality.clear()
         if (!file.exists()) return
         try {
-            val arr = JSONArray(file.readText(Charsets.UTF_8))
-            for (i in 0 until arr.length()) invented.add(arr.getString(i))
+            val text = file.readText(Charsets.UTF_8).trim()
+            if (text.startsWith("[")) {
+                // 老格式：纯数组，没有分数
+                val arr = JSONArray(text)
+                for (i in 0 until arr.length()) invented.add(arr.getString(i))
+            } else {
+                val o = JSONObject(text)
+                val arr = o.optJSONArray("sentences") ?: JSONArray()
+                for (i in 0 until arr.length()) invented.add(arr.getString(i))
+                val q = o.optJSONObject("q") ?: JSONObject()
+                for (k in q.keys()) quality[k] = q.optInt(k)
+            }
         } catch (_: Exception) {
         }
     }
@@ -52,7 +67,12 @@ class Dreamer(context: Context) {
         try {
             val arr = JSONArray()
             for (s in invented) arr.put(s)
-            file.writeText(arr.toString(), Charsets.UTF_8)
+            val q = JSONObject()
+            for ((k, v) in quality) q.put(k, v)
+            file.writeText(
+                JSONObject().put("sentences", arr).put("q", q).toString(),
+                Charsets.UTF_8
+            )
         } catch (_: Exception) {
         }
     }
@@ -62,21 +82,34 @@ class Dreamer(context: Context) {
      * 保证不会重复造已经有的。
      */
     fun grow(existing: Set<String>, n: Int = 2): List<String> {
-        val out = ArrayList<String>()
+        // 多造一批，打分后只留最好的几条
+        val scored = ArrayList<Pair<String, Int>>()
+        val seen = HashSet<String>()
         var tries = 0
-        while (out.size < n && tries < 80) {
+        while (tries < ATTEMPTS && scored.size < ATTEMPTS) {
             tries++
             val c = candidate()
-            if (valid(c, existing + out)) {
-                out.add(c)
-            }
+            if (!valid(c, existing + scored.map { it.first } + seen)) continue
+            val q = SentenceScore.quality(c, existing)
+            if (q < MIN_QUALITY) continue
+            seen.add(c)
+            scored.add(c to q)
         }
+        val out = scored.sortedByDescending { it.second }.take(n).map { it.first }
+
         invented.addAll(out)
+        for ((s, q) in scored) if (s in out) quality[s] = q
         // 控制总量，太多就成了复读机；只保留最近造的
-        while (invented.size > MAX_KEEP) invented.removeAt(0)
+        while (invented.size > MAX_KEEP) {
+            val dropped = invented.removeAt(0)
+            quality.remove(dropped)
+        }
         if (out.isNotEmpty()) save()
         return out
     }
+
+    /** 某句自造句的质量分，没有记录就现算 */
+    fun qualityOf(s: String): Int = quality[s] ?: SentenceScore.quality(s, invented)
 
     private fun pick(list: List<String>) = list[rnd.nextInt(list.size)]
 
@@ -133,5 +166,11 @@ class Dreamer(context: Context) {
     companion object {
         /** 最多留这么多句自己造的，超了就丢最早的 */
         const val MAX_KEEP = 45
+
+        /** 每轮尝试造多少条候选，按分数取前几名 */
+        const val ATTEMPTS = 60
+
+        /** 质量分低于这个的直接不要 */
+        const val MIN_QUALITY = 55
     }
 }

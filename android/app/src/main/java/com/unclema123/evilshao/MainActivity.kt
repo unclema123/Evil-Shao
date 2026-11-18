@@ -21,6 +21,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import kotlin.math.abs
+import java.util.Locale
 
 class MainActivity : Activity() {
 
@@ -64,6 +65,7 @@ class MainActivity : Activity() {
         dreamer = Dreamer(this)
         dreamer.load()
         quotes.invented.addAll(dreamer.invented)
+        quotes.dreamer = dreamer
 
         renderer = PigRenderer()
 
@@ -275,11 +277,16 @@ class MainActivity : Activity() {
         val sb = StringBuilder(learner.report())
         sb.append("\n\n── 你怎么说话（本地学的）──\n")
         sb.append(style.summary())
-        sb.append("\n\n── 自己造的新句 ──\n")
+        sb.append("\n\n── 自己造的新句（按质量分排序）──\n")
         if (quotes.invented.isEmpty()) {
             sb.append("（还没有，点「再造几句」让她想想）")
         } else {
-            quotes.invented.takeLast(10).forEach { sb.append("  ").append(it).append('\n') }
+            quotes.invented
+                .sortedByDescending { dreamer.qualityOf(it) }
+                .take(10)
+                .forEach {
+                    sb.append(String.format(Locale.CHINA, "  %d分  %s\n", dreamer.qualityOf(it), it))
+                }
         }
         sb.append("\n── 大模型 ──\n")
         sb.append(llmStatusText())
@@ -618,13 +625,14 @@ class MainActivity : Activity() {
 
     private fun inventMore() {
         Thread {
+            var newOnes: List<String> = emptyList()
             try {
                 val known = HashSet<String>()
                 known.addAll(quotes.signatures)
                 known.addAll(quotes.fallback)
                 quotes.rules.forEach { known.addAll(it.replies) }
                 known.addAll(quotes.invented)
-                dreamer.grow(known, 3)
+                newOnes = dreamer.grow(known, 3)
                 quotes.invented.clear()
                 quotes.invented.addAll(dreamer.invented)
             } catch (_: Exception) {
@@ -632,6 +640,16 @@ class MainActivity : Activity() {
             ui.post {
                 updateBadges()
                 panelText?.text = learnPanelText()
+                if (newOnes.isNotEmpty()) {
+                    Toast.makeText(
+                        this,
+                        "造了 " + newOnes.size + " 句：" +
+                            newOnes.joinToString("、") { "${dreamer.qualityOf(it)}分" },
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    Toast.makeText(this, "这次没造出合格的句子", Toast.LENGTH_SHORT).show()
+                }
             }
         }.start()
     }
@@ -643,6 +661,7 @@ class MainActivity : Activity() {
             .setPositiveButton("重置") { _, _ ->
                 learner.reset()
                 dreamer.invented.clear()
+                dreamer.quality.clear()
                 dreamer.save()
                 quotes.invented.clear()
                 updateBadges()

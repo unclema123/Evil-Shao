@@ -17,6 +17,9 @@ class Quotes(context: Context) {
     /** 挂上学习器后，回复会按学到的权重来挑 */
     var learner: Learner? = null
 
+    /** 挂上造句器后，自造句按质量分加权 */
+    var dreamer: Dreamer? = null
+
     val signatures = ArrayList<String>()
 
     /** 她自己造出来的新句子，和原有语料一起参与抽取 */
@@ -106,8 +109,21 @@ class Quotes(context: Context) {
             return s
         }
 
+        // 12% 概率纯随机：避免低分句永远没机会翻身
+        if (Random.nextInt(100) < 12) {
+            val s = candidates[Random.nextInt(candidates.size)]
+            remember(s)
+            return s
+        }
+
         val weights = DoubleArray(candidates.size) { i ->
-            learned.bonus(candidates[i], input)
+            var w = learned.bonus(candidates[i], input)
+            // 自造句再乘上质量分，防止拼出来的怪句子混进来
+            if (invented.contains(candidates[i])) {
+                val q = dreamer?.qualityOf(candidates[i]) ?: 60
+                w *= 0.70 + 0.60 * (q / 100.0)
+            }
+            w
         }
         val total = weights.sum()
         if (total <= 0.0) {
