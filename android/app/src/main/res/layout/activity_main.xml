@@ -168,6 +168,11 @@
             android:background="#F0E9E4" />
 
         <TextView
+            android:id="@+id/item_ime"
+            style="@style/MenuRow"
+            android:text="@string/menu_ime" />
+
+        <TextView
             android:id="@+id/item_close"
             style="@style/MenuRow"
             android:text="@string/menu_close"

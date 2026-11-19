@@ -34,6 +34,14 @@ class MainActivity : Activity() {
     /** 上次因为「拼音没选字」被拦的时间，2.5 秒内再点一次就放行 */
     private var pinyinWarnAt = 0L
 
+    /**
+     * 不用系统输入法。
+     *
+     * 模拟器接物理键盘时，输入法只留一条候选条浮在屏幕底部，看着就是「字母跑到框外」。
+     * 那条东西是输入法画的，应用删不掉，只能整体不用输入法——代价是打不了中文。
+     */
+    private var noIme = false
+
     /** 调试脚本塞进来的句子，不受拼音拦截影响 */
     private var debugAsk = false
 
@@ -88,6 +96,7 @@ class MainActivity : Activity() {
 
         bubble = findViewById(R.id.bubble)
         input = findViewById(R.id.input)
+        noIme = getSharedPreferences("input", MODE_PRIVATE).getBoolean("noIme", false)
         titleView = findViewById(R.id.title)
         menuPanel = findViewById(R.id.menuPanel)
         scrim = findViewById(R.id.scrim)
@@ -104,6 +113,14 @@ class MainActivity : Activity() {
             submit()
             true
         }
+        // 点进来就把软键盘带出来。键盘不弹的时候，有些输入法（雷电自带的拼音）
+        // 会在屏幕最底下另开一条合成窗口显示拼音，看着就像字母跑到输入框外面去了。
+        // 组词和候选留在键盘里，页面上就不会多那么一条。
+        input.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) input.postDelayed({ showKeyboard() }, 120)
+        }
+        input.setOnClickListener { showKeyboard() }
+        input.showSoftInputOnFocus = !noIme
         menuBtn.setOnClickListener { toggleMenu() }
         scrim.setOnClickListener { closeMenu() }
         findViewById<TextView>(R.id.item_close).setOnClickListener { closeMenu() }
@@ -122,6 +139,26 @@ class MainActivity : Activity() {
         findViewById<TextView>(R.id.item_ai).setOnClickListener {
             closeMenu()
             showAiSettings()
+        }
+        findViewById<TextView>(R.id.item_ime).setOnClickListener {
+            closeMenu()
+            noIme = !noIme
+            getSharedPreferences("input", MODE_PRIVATE).edit()
+                .putBoolean("noIme", noIme).apply()
+            input.showSoftInputOnFocus = !noIme
+            if (noIme) {
+                input.clearFocus()
+                hideKeyboard()
+            }
+            Toast.makeText(
+                this,
+                if (noIme) {
+                    "已关掉系统输入法：底部那条拼音不会再有，但只能直接打英文/数字"
+                } else {
+                    "已恢复系统输入法：可以打中文"
+                },
+                Toast.LENGTH_LONG
+            ).show()
         }
 
         trainAsync(showToast = false)
@@ -197,8 +234,10 @@ class MainActivity : Activity() {
         //  1) 规矩的输入法会留组词区，span 能查出来
         //  2) 雷电这种输入法在点发送前就把字母直接提交进来了，span 是 -1，
         //     只能看内容：中文输入法 + 纯 a-z 字母串 → 基本就是没选字的拼音
-        val composing = !debugAsk && BaseInputConnection.getComposingSpanStart(input.text) >= 0
-        if (composing || (!debugAsk && raw.isNotEmpty() && isChineseIme() && isPlainAscii(raw))) {
+        val composing = !debugAsk && !noIme && BaseInputConnection.getComposingSpanStart(input.text) >= 0
+        if (composing ||
+            (!debugAsk && !noIme && raw.isNotEmpty() && isChineseIme() && isPlainAscii(raw))
+        ) {
             // 第一次拦下来提示，2.5 秒内再点一次就照发——万一是真想发英文单词
             val now = System.currentTimeMillis()
             if (composing || now - pinyinWarnAt > 2500) {
@@ -916,6 +955,16 @@ class MainActivity : Activity() {
             }
             .setNegativeButton("取消", null)
             .show()
+    }
+
+    private fun showKeyboard() {
+        if (noIme) return
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        // SHOW_FORCED：模拟器接了物理键盘时，SHOW_IMPLICIT 会被忽略，
+        // 输入法只留一条很小的候选条浮在页面最下面。强制拉出完整键盘，
+        // 拼音和候选就都在键盘里，不会浮在输入框外面。
+        @Suppress("DEPRECATION")
+        imm.showSoftInput(input, InputMethodManager.SHOW_FORCED)
     }
 
     private fun hideKeyboard() {
