@@ -22,3 +22,6 @@ bake-test/
 *.npy
 __pycache__/
 *.pyc
+
+# 调试用的截图
+shot-now*.png
