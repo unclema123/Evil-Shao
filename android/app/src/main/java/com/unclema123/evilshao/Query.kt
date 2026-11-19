@@ -25,6 +25,16 @@ object Query {
     /** 标点统一去掉，中文问句里标点不传递信息 */
     private val PUNCT = Regex("[\\p{P}\\p{S}\\s]+")
 
+    /**
+     * 开头的指代、连词、语气词。
+     *
+     * 带着「那」去搜，Bing 会当成查这个字——实测「那空气质量 济南今天天气」
+     * 头条结果是汉典的「那 nà、nǎ、nèi、nā」词条。
+     */
+    private val LEAD = Regex(
+        "^(那么|那|这个|那个|这些|那些|这|它|他|她|还|再|又|然后|所以|但是|不过|而且|另外|顺便|就是|对啊|嗯)+"
+    )
+
     fun toSearchQuery(raw: String): String {
         var s = raw.trim()
         if (s.isEmpty()) return raw
@@ -36,10 +46,32 @@ object Query {
             prev = s
             s = PREFIX.replace(s, "").trim()
             s = SUFFIX.replace(s, "").trim()
+            s = LEAD.replace(s, "").trim()
         } while (s != prev && s.isNotEmpty())
 
         // 去过头了（比如整句都是口水）就退回原话，宁可搜得差也别搜个空串
         if (s.length < 2) return raw.trim()
         return s
+    }
+
+    /**
+     * 短问题补上下文。
+     *
+     * 「那明天呢」单独拿去搜，结果是一堆无关内容——它根本没有主语。
+     * 这种就往前翻，找到**第一个本身就有实词**的问句，把关键词拼上：
+     *
+     *   那后天呢  →  那后天 济南今天天气      ✅
+     *   那后天呢  →  那后天 那明天 那今天      ❌ 全是代词，越拼越乱
+     *
+     * 所以短的、全是代词的都跳过，只借有内容的那个。
+     */
+    fun withContext(q: String, prevUsers: List<String>): String {
+        if (q.length >= 6 || prevUsers.isEmpty()) return q
+        for (p in prevUsers.asReversed()) {
+            val k = toSearchQuery(p)
+            if (k.length < 5 || k == q) continue
+            return "$q $k"
+        }
+        return q
     }
 }

@@ -57,10 +57,14 @@ class LlmClient(context: Context) {
      *
      * 温度和长度要分开传：聊天要 0.95 才有那股跳脱劲儿，
      * 但查资料必须接近 0，不然模型会拿资料"发挥"。
+     *
+     * history 是之前的对话（role 只能是 user / assistant），按时间正序。
+     * 拼在 system 之后、当前这句之前，模型才接得住「那明天呢」这种话。
      */
     fun chat(
         system: String,
         user: String,
+        history: List<Pair<String, String>> = emptyList(),
         temperature: Double = 0.95,
         maxTokens: Int = 96,
         readTimeoutMs: Int = 20000
@@ -81,7 +85,11 @@ class LlmClient(context: Context) {
 
             val messages = JSONArray()
                 .put(JSONObject().put("role", "system").put("content", system))
-                .put(JSONObject().put("role", "user").put("content", user))
+            for ((role, content) in history) {
+                if (content.isBlank()) continue
+                messages.put(JSONObject().put("role", role).put("content", content))
+            }
+            messages.put(JSONObject().put("role", "user").put("content", user))
 
             val body = JSONObject()
                 .put("model", model)
@@ -100,7 +108,7 @@ class LlmClient(context: Context) {
                 return null
             }
             if (code !in 200..299) {
-                lastError = "HTTP $code：${text.take(120)}"
+                lastError = explain(code, text)
                 return null
             }
 
@@ -138,6 +146,22 @@ class LlmClient(context: Context) {
     companion object {
         const val DEFAULT_BASE = "https://open.bigmodel.cn/api/paas/v4"
         const val DEFAULT_MODEL = "glm-4-flash"
+
+        /**
+         * 把接口返回的英文错误翻成人话。
+         * 免费额度最常见的两种是「45 秒 1 条」和高峰期的 503，
+         * 直接甩一坨 JSON 出来没人看得懂，还会被当成「她不搭理我」。
+         */
+        fun explain(code: Int, body: String): String = when {
+            code == 401 -> "Key 无效或过期（HTTP 401）"
+            code == 402 && body.contains("FREE_LIMIT") -> "免费额度限流：每 45 秒只能问一次"
+            code == 402 -> "需要付费（HTTP 402）"
+            code == 429 -> "问得太快，被限流了（HTTP 429）"
+            code == 404 -> "接口地址不对，检查 baseUrl（HTTP 404）"
+            code == 503 || body.contains("SERVICE_UNAVAILABLE") ->
+                "服务端繁忙，过一会儿再问（HTTP 503）"
+            else -> "HTTP $code：${body.take(120)}"
+        }
 
         /** 预设供应商，方便切换 */
         val PRESETS = listOf(

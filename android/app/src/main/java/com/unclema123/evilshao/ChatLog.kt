@@ -52,6 +52,43 @@ class ChatLog(context: Context) {
 
     fun count(): Int = entries().size
 
+    /** 最近 n 条，按时间正序。喂给模型当上下文用。 */
+    fun recent(n: Int): List<Entry> {
+        if (n <= 0) return emptyList()
+        return entries().takeLast(n)
+    }
+
+    /** 上一次「我」说的话。跳过最后一条——那是刚发出去的当前这句。 */
+    fun previousMine(): String? {
+        val list = entries()
+        for (i in list.indices.reversed()) {
+            if (i == list.size - 1) continue
+            if (list[i].role == "我") return list[i].message
+        }
+        return null
+    }
+
+    /** 最近 n 句「我」说的话（不含刚发出去的当前这句），按时间正序 */
+    fun recentMine(n: Int): List<String> {
+        val mine = entries().filter { it.role == "我" }.map { it.message }
+        if (mine.isEmpty()) return emptyList()
+        return mine.dropLast(1).takeLast(n)
+    }
+
+    /**
+     * 上一轮的「我问 + 她答」，给查资料时补上文用。
+     * 跳过最后一条（那是当前的提问）。
+     */
+    fun lastExchange(): String {
+        val list = entries().dropLast(1)
+        val q = list.lastOrNull { it.role == "我" }?.message ?: return ""
+        val a = list.lastOrNull { it.role != "我" }?.message ?: ""
+        val sb = StringBuilder()
+        sb.append("我：").append(q)
+        if (a.isNotEmpty()) sb.append("\n她：").append(a)
+        return sb.toString()
+    }
+
     fun clear() {
         try {
             file.delete()

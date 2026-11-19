@@ -26,6 +26,9 @@ import java.util.Locale
 
 class MainActivity : Activity() {
 
+    /** 聊天时带多少条上文给模型。100 条约等于 1500 字，qwen-plus 的上下文放得下。 */
+    private val maxContext = 100
+
     private lateinit var gl: GLSurfaceView
     private lateinit var bubble: TextView
     private lateinit var input: EditText
@@ -194,6 +197,23 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * 取最近 limit 条对话，转成 messages 里的 user / assistant。
+     *
+     * 最后一条要去掉：submit() 是先 append「我」这句话再调 askLlm 的，
+     * 而当前这句已经作为 user 单独传进去了，不去掉会重复一遍。
+     */
+    private fun historyFor(limit: Int): List<Pair<String, String>> {
+        val all = try {
+            chatLog.recent(limit + 1)
+        } catch (e: Exception) {
+            emptyList<ChatLog.Entry>()
+        }
+        return all.dropLast(1).map {
+            (if (it.role == "我") "user" else "assistant") to it.message
+        }
+    }
+
     /** 走大模型；查得到就用知识库，查不到就上网搜，搜到记住；全失败回退本地 */
     private fun askLlm(userText: String) {
         // 1. 先看自己学过的
@@ -216,10 +236,20 @@ class MainActivity : Activity() {
         // 3. 联网搜一轮，抓正文喂给模型
         say("……我查一下")
         Thread {
+            // 短问题带指代（「那明天呢」）单独去搜是搜不到东西的，
+            // 把上一句的关键词补上再搜
+            val searchWord = Query.withContext(
+                Query.toSearchQuery(userText),
+                try {
+                    chatLog.recentMine(4)
+                } catch (e: Exception) {
+                    emptyList<String>()
+                }
+            )
             val hits = try {
                 // 先压搜索词，再拿 6 条，然后把前 3 条的正文抓下来。
                 // 只有标题和七八十字摘要的话，模型问啥都答不上来。
-                val raw = web.search(Query.toSearchQuery(userText), 6)
+                val raw = web.search(searchWord, 6)
                 if (raw.isEmpty()) raw else web.enrich(raw, 3, 900)
             } catch (e: Exception) {
                 emptyList<WebSearch.Hit>()
@@ -227,11 +257,12 @@ class MainActivity : Activity() {
 
             val usable = hits.sortedByDescending { it.body.length }
                 .filter { it.body.isNotEmpty() || it.snippet.length >= 20 }
+            val hist = historyFor(20)     // 查资料时上下文短一点，把预算留给材料
             android.util.Log.d(
                 "EvilShao",
-                "搜索词=[${Query.toSearchQuery(userText)}] 命中=${hits.size} " +
+                "搜索词=[$searchWord] 命中=${hits.size} " +
                     "有正文=${hits.count { it.body.isNotEmpty() }} 可用=${usable.size} " +
-                    "错误=${web.lastError}"
+                    "上下文=${hist.size}条 错误=${web.lastError}"
             )
             if (usable.isNotEmpty()) {
                 android.util.Log.d(
@@ -242,12 +273,25 @@ class MainActivity : Activity() {
             val reply = if (usable.isEmpty()) {
                 // 没搜到就别装作查过，先告诉用户，再凭记忆答
                 ui.post { say("……没连上，我先凭印象") }
-                llm.chat(Persona.systemPrompt(quotes, style.hint()), userText)
+                llm.chat(
+                    Persona.systemPrompt(quotes, style.hint()),
+                    userText,
+                    history = historyFor(maxContext)
+                )
             } else {
                 // 查资料要确定性，温度和长度都跟聊天分开
                 llm.chat(
                     Persona.researchPrompt(),
-                    Persona.materialPrompt(userText, usable),
+                    Persona.materialPrompt(
+                        userText,
+                        usable,
+                        context = try {
+                            chatLog.lastExchange()
+                        } catch (e: Exception) {
+                            ""
+                        }
+                    ),
+                    history = hist,
                     temperature = 0.25,
                     maxTokens = 300,
                     readTimeoutMs = 45000
@@ -274,8 +318,14 @@ class MainActivity : Activity() {
 
     private fun askLlmPlain(userText: String) {
         Thread {
+            val hist = historyFor(maxContext)
+            android.util.Log.d("EvilShao", "直答 上下文=${hist.size}条")
             val reply = try {
-                llm.chat(Persona.systemPrompt(quotes, style.hint()), userText)
+                llm.chat(
+                    Persona.systemPrompt(quotes, style.hint()),
+                    userText,
+                    history = hist
+                )
             } catch (e: Exception) {
                 null
             }
