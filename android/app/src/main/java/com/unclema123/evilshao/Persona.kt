@@ -28,23 +28,27 @@ object Persona {
 
     /** 查资料模式：不要人设，只要准确 */
     fun researchPrompt(): String = """
-        你是查资料助手。下面会给你几段网上资料和用户的问题。
+        你是查资料助手。下面会给你从网页抓下来的资料（有标题、摘要和正文）和一个问题。
         要求：
         1. 只根据资料里的事实回答，资料没提到的直接说「不知道」，绝对不要编。
-        2. 中文，一句话说清，最多 60 字。
+        2. 中文，一句话说清，最多 50 字。
         3. 不要出现「资料」「网页」「根据提供的信息」这类词。
         4. 不要寒暄，不要客套，不要表情符号。
+        5. 如果资料里数字、日期互相矛盾，说最新那个。
     """.trimIndent()
 
-    /** 把搜索结果拼成给模型的输入 */
+    /** 把搜索结果拼成给模型的输入。正文优先，正文没有才用摘要 */
     fun materialPrompt(question: String, hits: List<WebSearch.Hit>): String {
         val sb = StringBuilder("资料：\n")
-        hits.forEachIndexed { i, h ->
+        // 只取前 4 条、每条 500 字。喂 6 条 × 700 字实测会超过 20 秒读超时，
+        // 材料再全也没用——先保证能答上来。
+        hits.take(4).forEachIndexed { i, h ->
             sb.append('[').append(i + 1).append("] ").append(h.title)
-            if (h.snippet.isNotEmpty()) sb.append(" — ").append(h.snippet)
-            sb.append('\n')
+            val detail = if (h.body.isNotEmpty()) h.body else h.snippet
+            if (detail.isNotEmpty()) sb.append('\n').append(detail.take(500))
+            sb.append("\n\n")
         }
-        sb.append("\n问题：").append(question)
+        sb.append("问题：").append(question)
         return sb.toString()
     }
 }

@@ -77,12 +77,19 @@ class Knowledge(context: Context) {
     /**
      * 找一条已经学过的答案。score 是问题+答案的 bigram 覆盖率，
      * 0.55 以上才认为问的是同一件事。
+     *
+     * 必须带有效期：天气、价格、新闻这类问一次记一辈子的行为，
+     * 表现出来就是「搜索很差」——其实它根本没搜，用的是几个月前的旧答案。
      */
     fun find(query: String): Hit? {
         val qb = bigrams(normalize(query))
         if (qb.size < 2) return null
+        val ttl = ttlFor(query)
+        val now = System.currentTimeMillis()
         var best: Hit? = null
         for (e in all()) {
+            if (now - e.time > ttl) continue          // 过期的不算
+            if (isNonAnswer(e.answer)) continue       // 「不知道」不算知识
             val pool = normalize(e.question + e.answer)
             var matched = 0
             for (g in qb) if (pool.contains(g)) matched++
@@ -92,6 +99,23 @@ class Knowledge(context: Context) {
             }
         }
         return best
+    }
+
+    /** 这条问题的答案能信多久 */
+    fun ttlFor(query: String): Long =
+        if (isTimeSensitive(query)) TTL_FRESH else TTL_STABLE
+
+    /** 问题里有时效性的词，就别拿老答案糊弄 */
+    fun isTimeSensitive(query: String): Boolean = TIME_SENSITIVE.containsMatchIn(query)
+
+    /**
+     * 这条答案是不是「没答上来」。
+     * 存了也没用——下次问还会秒回不知道，看起来就像搜索坏了。
+     */
+    fun isNonAnswer(answer: String): Boolean {
+        val t = answer.replace(Regex("[\\p{P}\\s]"), "")
+        if (t.length > 8) return false
+        return NON_ANSWER.any { t.contains(it) }
     }
 
     fun report(): String {
@@ -114,5 +138,22 @@ class Knowledge(context: Context) {
         val out = HashSet<String>()
         for (i in 0 until s.length - 1) out.add(s.substring(i, i + 2))
         return out
+    }
+
+    companion object {
+        /** 时效性问题的答案只信 1 小时 */
+        const val TTL_FRESH = 60L * 60 * 1000
+
+        /** 常识类问题信 7 天 */
+        const val TTL_STABLE = 7L * 24 * 60 * 60 * 1000
+
+        private val TIME_SENSITIVE = Regex(
+            "今天|今日|现在|目前|最新|最近|刚刚|这周|本周|本月|天气|气温|下雨|降雨|几号|几点|星期几|" +
+                "价格|多少钱|股价|汇率|油价|房价|金价|票房|比分|赛程|新闻|发布|停运|限行|放假|假期|" +
+                "去世|逝世|当选|比赛结果|开奖|排行|榜|预报"
+        )
+
+        /** 判定「没答上来」的词 */
+        private val NON_ANSWER = listOf("不知道", "不清楚", "不确定", "没查到", "无法回答", "答不上")
     }
 }

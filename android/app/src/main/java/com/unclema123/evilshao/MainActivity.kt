@@ -126,6 +126,21 @@ class MainActivity : Activity() {
         }, 500)
 
         debugMood()
+        debugAsk()
+    }
+
+    /**
+     * 调试图专用：adb 启动时带 --es ask "济南今天天气" 就自动问一句。
+     * 中文没法用 adb shell input text 打进去，只能这么测。
+     */
+    private fun debugAsk() {
+        if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
+        val q = intent?.getStringExtra("ask")?.trim() ?: return
+        if (q.isEmpty()) return
+        ui.postDelayed({
+            input.setText(q)
+            submit()
+        }, 600)
     }
 
     /**
@@ -198,26 +213,55 @@ class MainActivity : Activity() {
             return
         }
 
-        // 3. 联网搜一轮，把摘要喂给模型
+        // 3. 联网搜一轮，抓正文喂给模型
         say("……我查一下")
         Thread {
             val hits = try {
-                web.search(userText, 4)
+                // 先压搜索词，再拿 6 条，然后把前 3 条的正文抓下来。
+                // 只有标题和七八十字摘要的话，模型问啥都答不上来。
+                val raw = web.search(Query.toSearchQuery(userText), 6)
+                if (raw.isEmpty()) raw else web.enrich(raw, 3, 900)
             } catch (e: Exception) {
                 emptyList<WebSearch.Hit>()
             }
 
-            val reply = if (hits.isEmpty()) {
+            val usable = hits.sortedByDescending { it.body.length }
+                .filter { it.body.isNotEmpty() || it.snippet.length >= 20 }
+            android.util.Log.d(
+                "EvilShao",
+                "搜索词=[${Query.toSearchQuery(userText)}] 命中=${hits.size} " +
+                    "有正文=${hits.count { it.body.isNotEmpty() }} 可用=${usable.size} " +
+                    "错误=${web.lastError}"
+            )
+            if (usable.isNotEmpty()) {
+                android.util.Log.d(
+                    "EvilShao",
+                    "材料=" + Persona.materialPrompt(userText, usable).take(300)
+                )
+            }
+            val reply = if (usable.isEmpty()) {
+                // 没搜到就别装作查过，先告诉用户，再凭记忆答
+                ui.post { say("……没连上，我先凭印象") }
                 llm.chat(Persona.systemPrompt(quotes, style.hint()), userText)
             } else {
-                llm.chat(Persona.researchPrompt(), Persona.materialPrompt(userText, hits))
+                // 查资料要确定性，温度和长度都跟聊天分开
+                llm.chat(
+                    Persona.researchPrompt(),
+                    Persona.materialPrompt(userText, usable),
+                    temperature = 0.25,
+                    maxTokens = 300,
+                    readTimeoutMs = 45000
+                )
             }
 
             ui.post {
-                val clean = sanitize(reply, if (hits.isEmpty()) 40 else 70)
+                android.util.Log.d("EvilShao", "模型返回=[${reply}] 错误=[${llm.lastError}]")
+                val clean = sanitize(reply, if (usable.isEmpty()) 40 else 70)
                 if (clean != null) {
-                    if (hits.isNotEmpty()) {
-                        knowledge.save(userText, clean, hits.map { it.url })
+                    // 「不知道」也存进知识库的话，以后每次问都秒回不知道，
+                    // 看起来就像搜索坏了。没查到的答案不记账。
+                    if (usable.isNotEmpty() && !knowledge.isNonAnswer(clean)) {
+                        knowledge.save(userText, clean, usable.map { it.url })
                     }
                     afterReply(style.adapt(clean))
                     panelText?.text = learnPanelText()

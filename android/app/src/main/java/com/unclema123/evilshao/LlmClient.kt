@@ -52,15 +52,26 @@ class LlmClient(context: Context) {
     var lastError: String? = null
         private set
 
-    /** 返回模型回复；任何异常返回 null */
-    fun chat(system: String, user: String): String? {
+    /**
+     * 返回模型回复；任何异常返回 null。
+     *
+     * 温度和长度要分开传：聊天要 0.95 才有那股跳脱劲儿，
+     * 但查资料必须接近 0，不然模型会拿资料"发挥"。
+     */
+    fun chat(
+        system: String,
+        user: String,
+        temperature: Double = 0.95,
+        maxTokens: Int = 96,
+        readTimeoutMs: Int = 20000
+    ): String? {
         var conn: HttpURLConnection? = null
         return try {
             val url = URL(baseUrl.trimEnd('/') + "/chat/completions")
             conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 8000
-                readTimeout = 20000
+                readTimeout = readTimeoutMs
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
                 if (apiKey.isNotBlank()) {
@@ -75,8 +86,8 @@ class LlmClient(context: Context) {
             val body = JSONObject()
                 .put("model", model)
                 .put("messages", messages)
-                .put("temperature", 0.95)
-                .put("max_tokens", 96)
+                .put("temperature", temperature)
+                .put("max_tokens", maxTokens)
                 .put("stream", false)
                 .toString()
 
