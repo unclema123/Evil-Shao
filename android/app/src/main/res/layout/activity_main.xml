@@ -46,8 +46,10 @@
             android:layout_weight="1"
             android:background="@drawable/input_bg"
             android:hint="@string/hint"
+            android:imeOptions="actionSend|flagNoExtractUi"
             android:inputType="text"
             android:maxLines="1"
+            android:singleLine="true"
             android:textColor="#4A3F43"
             android:textColorHint="#C0A5AE"
             android:textSize="15sp" />

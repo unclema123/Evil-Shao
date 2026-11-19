@@ -10,9 +10,11 @@ import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.text.InputType
 import android.view.MotionEvent
 import android.view.View
+import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.CheckBox
@@ -28,6 +30,12 @@ class MainActivity : Activity() {
 
     /** 聊天时带多少条上文给模型。100 条约等于 1500 字，qwen-plus 的上下文放得下。 */
     private val maxContext = 100
+
+    /** 上次因为「拼音没选字」被拦的时间，2.5 秒内再点一次就放行 */
+    private var pinyinWarnAt = 0L
+
+    /** 调试脚本塞进来的句子，不受拼音拦截影响 */
+    private var debugAsk = false
 
     private lateinit var gl: GLSurfaceView
     private lateinit var bubble: TextView
@@ -141,8 +149,10 @@ class MainActivity : Activity() {
         val q = intent?.getStringExtra("ask")?.trim() ?: return
         if (q.isEmpty()) return
         ui.postDelayed({
+            debugAsk = true          // 绕过「拼音没选字」拦截，这是脚本塞进来的完整句子
             input.setText(q)
             submit()
+            debugAsk = false
         }, 600)
     }
 
@@ -181,20 +191,64 @@ class MainActivity : Activity() {
     }
 
     private fun submit() {
-        val text = input.text.toString().trim()
-        if (text.isEmpty()) return
-        input.setText("")
-        chatLog.append("我", text)
-        style.observe(text)
+        val raw = input.text.toString().trim()
+
+        // 两种「拼音还没选成字」的情况：
+        //  1) 规矩的输入法会留组词区，span 能查出来
+        //  2) 雷电这种输入法在点发送前就把字母直接提交进来了，span 是 -1，
+        //     只能看内容：中文输入法 + 纯 a-z 字母串 → 基本就是没选字的拼音
+        val composing = !debugAsk && BaseInputConnection.getComposingSpanStart(input.text) >= 0
+        if (composing || (!debugAsk && raw.isNotEmpty() && isChineseIme() && isPlainAscii(raw))) {
+            // 第一次拦下来提示，2.5 秒内再点一次就照发——万一是真想发英文单词
+            val now = System.currentTimeMillis()
+            if (composing || now - pinyinWarnAt > 2500) {
+                pinyinWarnAt = now
+                Toast.makeText(this, "拼音还没选成字，再点一次就直接发", Toast.LENGTH_SHORT).show()
+                return
+            }
+        }
+
+        if (raw.isEmpty()) return
+        input.text.clear()
+        chatLog.append("我", raw)
+        style.observe(raw)
         style.save()
         say("……")
-        hideKeyboard()
+
+        // 收键盘的同时要放开焦点。只收键盘不放焦点的话，
+        // 气泡一出现、布局一变，输入法会自己弹回来，还会切回默认语言——
+        // 就是「回答完自动切换输入法」的来源。
+        input.clearFocus()
+        ui.postDelayed({ hideKeyboard() }, 80)
 
         if (llm.isConfigured()) {
-            ui.postDelayed({ askLlm(text) }, 260)
+            ui.postDelayed({ askLlm(raw) }, 260)
         } else {
-            ui.postDelayed({ afterReply(style.adapt(quotes.reply(text))) }, 520)
+            ui.postDelayed({ afterReply(style.adapt(quotes.reply(raw))) }, 520)
         }
+    }
+
+    /** 纯小写字母（拼音不会带空格和符号；带汉字就一定不是没选字） */
+    private fun isPlainAscii(t: String): Boolean =
+        t.isNotEmpty() && t.all { it in 'a'..'z' || it == '\'' }
+
+    /** 当前是不是中文拼音类输入法：雷电 / 搜狗 / 百度 / 讯飞 / AOSP 拼音 */
+    private fun isChineseIme(): Boolean {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        val sub = try {
+            imm.currentInputMethodSubtype
+        } catch (e: Exception) {
+            null
+        }
+        if (sub != null && sub.locale.contains("zh", ignoreCase = true)) return true
+        val id = try {
+            Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+        } catch (e: Exception) {
+            null
+        } ?: return false
+        val k = id.lowercase(Locale.ROOT)
+        return k.contains("pinyin") || k.contains("sogou") || k.contains("baidu.input") ||
+            k.contains("iflytek") || k.contains(".zh")
     }
 
     /**
@@ -867,6 +921,12 @@ class MainActivity : Activity() {
     private fun hideKeyboard() {
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(input.windowToken, 0)
+        // 顺带清掉组词状态，免得下次点进来还挂着上次的拼音。
+        // currentInputConnection 不是公开 API，直接从文本的 span 上摘。
+        try {
+            BaseInputConnection.removeComposingSpans(input.text)
+        } catch (_: Exception) {
+        }
     }
 
     /** 拖动旋转、点一下让她说话 */
