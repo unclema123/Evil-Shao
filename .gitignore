@@ -6,7 +6,17 @@ out/
 .idea/
 .DS_Store
 
-# 本地工具链与个人备份，不入库
-tools/
+# 个人备份，不入库
 misc/
 android/local.properties
+
+# tools 里的脚本要入库，只忽略第三方打包工具（39MB）
+tools/wix314/
+tools/wix314.zip
+
+# 建模中间产物：可用 tools/build_pig.py 重新生成，不入库
+gen/
+gen[0-9]/
+gen-hi/
+bake-test/
+*.npy
