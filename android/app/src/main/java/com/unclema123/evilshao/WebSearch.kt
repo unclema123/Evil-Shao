@@ -5,6 +5,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.Charset
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * 网页搜索。用 Bing 中国站，不需要注册、不需要 key。
@@ -77,6 +80,45 @@ class WebSearch {
         if (hits.isEmpty()) return hits
         return hits.mapIndexed { i, h ->
             if (i >= n || h.body.isNotEmpty()) h else h.copy(body = article(h.url, maxChars))
+        }
+    }
+
+    /**
+     * 并行抓前 n 条的正文，带总预算时间。
+     *
+     * 串行抓 3 篇最坏是 3 × (5s 连接 + 8s 读取) = 39 秒，用户早就等烦了。
+     * 这里开 3 条线程同时抓，谁先回来算谁的，超时的直接留空——
+     * 少一篇正文比让她「查」一分多钟强。
+     *
+     * @param budgetMs 整个抓取阶段最多花多少毫秒
+     */
+    fun enrichParallel(hits: List<Hit>, n: Int = 3, maxChars: Int = 900, budgetMs: Long = 12000): List<Hit> {
+        if (hits.isEmpty()) return hits
+        val todo = hits.take(n).count { it.body.isEmpty() }
+        if (todo == 0) return hits
+
+        val pool = Executors.newFixedThreadPool(minOf(todo, 3)) { r ->
+            Thread(r, "web-enrich").apply { isDaemon = true }
+        }
+        return try {
+            val deadline = System.currentTimeMillis() + budgetMs
+            val futures = hits.mapIndexed { i, h ->
+                if (i >= n || h.body.isNotEmpty()) null
+                else pool.submit(Callable { h.copy(body = article(h.url, maxChars)) })
+            }
+            hits.mapIndexed { i, h ->
+                val f = futures[i]
+                if (f == null) return@mapIndexed h
+                val remain = (deadline - System.currentTimeMillis()).coerceAtLeast(1)
+                try {
+                    f.get(remain, TimeUnit.MILLISECONDS)
+                } catch (_: Exception) {
+                    f.cancel(true)
+                    h
+                }
+            }
+        } finally {
+            pool.shutdownNow()
         }
     }
 

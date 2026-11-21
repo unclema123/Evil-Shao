@@ -28,9 +28,6 @@ import java.util.Locale
 
 class MainActivity : Activity() {
 
-    /** 聊天时带多少条上文给模型。100 条约等于 1500 字，qwen-plus 的上下文放得下。 */
-    private val maxContext = 100
-
     /** 上次因为「拼音没选字」被拦的时间，2.5 秒内再点一次就放行 */
     private var pinyinWarnAt = 0L
 
@@ -62,6 +59,9 @@ class MainActivity : Activity() {
     private lateinit var knowledge: Knowledge
     private lateinit var style: StyleProfile
 
+    /** 对话编排（记忆 / 联网 / 模型 / 本地兜底）都在这里，Activity 只管界面 */
+    private lateinit var brain: ChatBrain
+
     private val ui = Handler(Looper.getMainLooper())
     private var sinceTrain = 0
     private var panelText: TextView? = null
@@ -88,6 +88,25 @@ class MainActivity : Activity() {
         quotes.dreamer = dreamer
 
         renderer = GlbRenderer(this)
+
+        // 业务逻辑全部委托给 ChatBrain；这里只负责把回调反映到界面上
+        brain = ChatBrain(
+            llm = llm,
+            web = web,
+            knowledge = knowledge,
+            quotes = quotes,
+            style = style,
+            chatLog = chatLog,
+            listener = object : ChatBrain.Listener {
+                override fun onStatus(text: String) = say(text)
+                override fun onStream(partial: String) = sayPartial(partial)
+                override fun onReply(reply: String, model: Boolean) = afterReply(reply)
+                override fun onMemorySaved() {
+                    panelText?.text = learnPanelText()
+                }
+            },
+            postToUi = { r -> ui.post(r) }
+        )
 
         gl = findViewById(R.id.gl)
         gl.setEGLContextClientVersion(2)
@@ -261,9 +280,10 @@ class MainActivity : Activity() {
         ui.postDelayed({ hideKeyboard() }, 80)
 
         if (llm.isConfigured()) {
-            ui.postDelayed({ askLlm(raw) }, 260)
+            ui.postDelayed({ brain.ask(raw) }, 260)
         } else {
-            ui.postDelayed({ afterReply(style.adapt(quotes.reply(raw))) }, 520)
+            // 没配大模型时也走编排层，保证「点一下就有回应」的体感不变
+            ui.postDelayed({ brain.ask(raw) }, 520)
         }
     }
 
@@ -290,160 +310,11 @@ class MainActivity : Activity() {
             k.contains("iflytek") || k.contains(".zh")
     }
 
-    /**
-     * 取最近 limit 条对话，转成 messages 里的 user / assistant。
-     *
-     * 最后一条要去掉：submit() 是先 append「我」这句话再调 askLlm 的，
-     * 而当前这句已经作为 user 单独传进去了，不去掉会重复一遍。
-     */
-    private fun historyFor(limit: Int): List<Pair<String, String>> {
-        val all = try {
-            chatLog.recent(limit + 1)
-        } catch (e: Exception) {
-            emptyList<ChatLog.Entry>()
-        }
-        return all.dropLast(1).map {
-            (if (it.role == "我") "user" else "assistant") to it.message
-        }
-    }
-
-    /** 走大模型；查得到就用知识库，查不到就上网搜，搜到记住；全失败回退本地 */
-    private fun askLlm(userText: String) {
-        // 1. 先看自己学过的
-        val known = try {
-            knowledge.find(userText)
-        } catch (e: Exception) {
-            null
-        }
-        if (known != null) {
-            afterReply(known.answer)
-            return
-        }
-
-        // 2. 没学过，且没开联网 → 直接问模型
-        if (!llm.searchEnabled) {
-            askLlmPlain(userText)
-            return
-        }
-
-        // 3. 联网搜一轮，抓正文喂给模型
-        say("……我查一下")
-        Thread {
-            // 短问题带指代（「那明天呢」）单独去搜是搜不到东西的，
-            // 把上一句的关键词补上再搜
-            val searchWord = Query.withContext(
-                Query.toSearchQuery(userText),
-                try {
-                    chatLog.recentMine(4)
-                } catch (e: Exception) {
-                    emptyList<String>()
-                }
-            )
-            val hits = try {
-                // 先压搜索词，再拿 6 条，然后把前 3 条的正文抓下来。
-                // 只有标题和七八十字摘要的话，模型问啥都答不上来。
-                val raw = web.search(searchWord, 6)
-                if (raw.isEmpty()) raw else web.enrich(raw, 3, 900)
-            } catch (e: Exception) {
-                emptyList<WebSearch.Hit>()
-            }
-
-            val usable = hits.sortedByDescending { it.body.length }
-                .filter { it.body.isNotEmpty() || it.snippet.length >= 20 }
-            val hist = historyFor(20)     // 查资料时上下文短一点，把预算留给材料
-            android.util.Log.d(
-                "EvilShao",
-                "搜索词=[$searchWord] 命中=${hits.size} " +
-                    "有正文=${hits.count { it.body.isNotEmpty() }} 可用=${usable.size} " +
-                    "上下文=${hist.size}条 错误=${web.lastError}"
-            )
-            if (usable.isNotEmpty()) {
-                android.util.Log.d(
-                    "EvilShao",
-                    "材料=" + Persona.materialPrompt(userText, usable).take(300)
-                )
-            }
-            val reply = if (usable.isEmpty()) {
-                // 没搜到就别装作查过，先告诉用户，再凭记忆答
-                ui.post { say("……没连上，我先凭印象") }
-                llm.chat(
-                    Persona.systemPrompt(quotes, style.hint()),
-                    userText,
-                    history = historyFor(maxContext)
-                )
-            } else {
-                // 查资料要确定性，温度和长度都跟聊天分开
-                llm.chat(
-                    Persona.researchPrompt(),
-                    Persona.materialPrompt(
-                        userText,
-                        usable,
-                        context = try {
-                            chatLog.lastExchange()
-                        } catch (e: Exception) {
-                            ""
-                        }
-                    ),
-                    history = hist,
-                    temperature = 0.25,
-                    maxTokens = 300,
-                    readTimeoutMs = 45000
-                )
-            }
-
-            ui.post {
-                android.util.Log.d("EvilShao", "模型返回=[${reply}] 错误=[${llm.lastError}]")
-                val clean = sanitize(reply, if (usable.isEmpty()) 40 else 70)
-                if (clean != null) {
-                    // 「不知道」也存进知识库的话，以后每次问都秒回不知道，
-                    // 看起来就像搜索坏了。没查到的答案不记账。
-                    if (usable.isNotEmpty() && !knowledge.isNonAnswer(clean)) {
-                        knowledge.save(userText, clean, usable.map { it.url })
-                    }
-                    afterReply(style.adapt(clean))
-                    panelText?.text = learnPanelText()
-                } else {
-                    afterReply(style.adapt(quotes.reply(userText)))
-                }
-            }
-        }.start()
-    }
-
-    private fun askLlmPlain(userText: String) {
-        Thread {
-            val hist = historyFor(maxContext)
-            android.util.Log.d("EvilShao", "直答 上下文=${hist.size}条")
-            val reply = try {
-                llm.chat(
-                    Persona.systemPrompt(quotes, style.hint()),
-                    userText,
-                    history = hist
-                )
-            } catch (e: Exception) {
-                null
-            }
-            ui.post {
-                val clean = sanitize(reply, 40)
-                if (clean != null) afterReply(style.adapt(clean))
-                else afterReply(style.adapt(quotes.reply(userText)))
-            }
-        }.start()
-    }
-
-    /** 模型偶尔会带引号或换行，清理一下 */
-    private fun sanitize(raw: String?, maxLen: Int = 40): String? {
-        if (raw.isNullOrBlank()) return null
-        var s = raw.trim().replace("\n", " ")
-        s = s.trim('"', '「', '」', '“', '”', '\'')
-        if (s.contains("作为") && s.contains("AI")) return null
-        if (s.length > maxLen) s = s.take(maxLen)
-        return s.ifBlank { null }
-    }
 
     private fun afterReply(reply: String) {
         chatLog.append("她", reply)
         say(reply)
-        val mood = moodFor(reply)
+        val mood = MoodClassifier.of(reply)
         renderer.show(mood)
         if (mood == GlbRenderer.Mood.HAPPY) renderer.wave(2000L)
         updateBadges()
@@ -451,35 +322,6 @@ class MainActivity : Activity() {
         if (sinceTrain >= 12) {
             sinceTrain = 0
             trainAsync(showToast = false)
-        }
-    }
-
-    /**
-     * 看她说了什么，决定露什么表情。
-     *
-     * 顺序有讲究：先判断怼人和惊讶，因为「你闭嘴吧」里也可能带个感叹号，
-     * 放到后面就会被当成长辈式平静。
-     */
-    private fun moodFor(reply: String): GlbRenderer.Mood {
-        val t = reply.trim()
-        if (t.isEmpty()) return GlbRenderer.Mood.NEUTRAL
-
-        val angry = listOf("闭嘴", "傻子", "有病", "烦", "起开", "滚", "反弹", "你才", "少来", "无聊", "幼稚")
-        val surprised = listOf("我的天", "窝趣", "卧槽", "天哪", "真的假的", "不会吧", "什么鬼", "离谱")
-        val happy = listOf("哈哈", "嘻嘻", "笑死", "嘿嘿", "好耶", "开心", "好玩", "有意思")
-        val shy = listOf("人美心善", "我大度", "面子", "谢谢", "夸", "害羞", "哪有", "讨厌")
-        val bored = listOf("不知道", "随便", "行吧", "算了", "无聊", "嗯", "哦", "没意思")
-
-        fun hit(list: List<String>) = list.any { t.contains(it) }
-
-        return when {
-            hit(angry) -> GlbRenderer.Mood.ANGRY
-            hit(surprised) -> GlbRenderer.Mood.SURPRISED
-            hit(happy) -> GlbRenderer.Mood.HAPPY
-            hit(shy) -> GlbRenderer.Mood.SHY
-            // 短促的敷衍（嗯、哦、……）才判无聊，长了就不是敷衍
-            hit(bored) && t.length <= 6 -> GlbRenderer.Mood.BORED
-            else -> GlbRenderer.Mood.NEUTRAL
         }
     }
 
@@ -559,6 +401,23 @@ class MainActivity : Activity() {
             .scaleY(1f)
             .setDuration(190)
             .start()
+    }
+
+    /**
+     * 流式输出用：只改文字，不跑缩放动画。
+     * 模型每几十毫秒吐一次增量，每次都触发 190ms 动画会抖成帕金森。
+     */
+    private fun sayPartial(text: String) {
+        if (text.isBlank()) {
+            bubble.visibility = View.GONE
+            return
+        }
+        bubble.animate().cancel()
+        bubble.alpha = 1f
+        bubble.scaleX = 1f
+        bubble.scaleY = 1f
+        bubble.text = text
+        bubble.visibility = View.VISIBLE
     }
 
     private fun learnPanelText(): String {
@@ -978,6 +837,12 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        // 作废所有在途请求：Activity 都销毁了，回调再打到界面上就是崩
+        if (::brain.isInitialized) brain.shutdown()
+    }
+
     /** 拖动旋转、点一下让她说话 */
     private inner class TouchHandler : View.OnTouchListener {
         private var lastX = 0f
@@ -1005,7 +870,9 @@ class MainActivity : Activity() {
                         val line = style.adapt(quotes.randomSignature())
                         chatLog.append("她", line)
                         say(line)
-                        renderer.show(moodFor(line))
+                        renderer.show(MoodClassifier.of(line))
+                        // 记一笔，免得接下来的模型回复跟她刚说的撞车
+                        brain.noteSaid(line)
                         updateBadges()
                     }
                 }

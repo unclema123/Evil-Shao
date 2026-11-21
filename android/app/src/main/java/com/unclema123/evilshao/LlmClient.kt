@@ -3,7 +3,9 @@ package com.unclema123.evilshao
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URL
 
 /**
@@ -13,6 +15,16 @@ import java.net.URL
  * 只要改 baseUrl 和 model 就能换供应商。
  *
  * 设计原则：失败一律返回 null，由调用方回退到本地引擎 —— 没网也不能变哑巴。
+ *
+ * v1.1 起加了四件事（都是对着开源实现抄的作业）：
+ *  1. **流式输出** [chatStream]：SSE 逐块回调，气泡能一个字一个字往外蹦。
+ *     参考 openai-kotlin（aallam）的 SSE 解析：只认 `data:` 行，`[DONE]` 结束。
+ *  2. **自动重试**：429/5xx/超时重试一次。免费额度「45 秒 1 条」是常态，
+ *     以前一次失败就掉回本地语录，看起来像她突然不理人。
+ *  3. **复读抑制**：frequency_penalty / presence_penalty，对应 OpenAI 文档里的
+ *     频率惩罚和存在惩罚，小模型连说三遍同一句话时很有效。
+ *  4. **流式失败自动回退**：有些免费接口不支持 stream，返回的是普通 JSON，
+ *     这里识别出来直接当非流式用，不会白等。
  */
 class LlmClient(context: Context) {
 
@@ -52,6 +64,13 @@ class LlmClient(context: Context) {
     var lastError: String? = null
         private set
 
+    /** 上一次调用实际用了几次尝试（1 = 一次就成） */
+    @Volatile
+    var lastAttempts: Int = 0
+        private set
+
+    // ────────────────────────────── 非流式 ──────────────────────────────
+
     /**
      * 返回模型回复；任何异常返回 null。
      *
@@ -67,38 +86,45 @@ class LlmClient(context: Context) {
         history: List<Pair<String, String>> = emptyList(),
         temperature: Double = 0.95,
         maxTokens: Int = 96,
-        readTimeoutMs: Int = 20000
+        readTimeoutMs: Int = 20000,
+        frequencyPenalty: Double = 0.0,
+        presencePenalty: Double = 0.0,
+        retries: Int = 1
+    ): String? {
+        var attempt = 0
+        while (true) {
+            attempt++
+            val r = once(system, user, history, temperature, maxTokens, readTimeoutMs,
+                frequencyPenalty, presencePenalty)
+            lastAttempts = attempt
+            if (r != null) return r
+            if (attempt > retries || !retryable(lastError)) return null
+            sleepBeforeRetry(attempt)
+        }
+    }
+
+    private fun once(
+        system: String,
+        user: String,
+        history: List<Pair<String, String>>,
+        temperature: Double,
+        maxTokens: Int,
+        readTimeoutMs: Int,
+        frequencyPenalty: Double,
+        presencePenalty: Double
     ): String? {
         var conn: HttpURLConnection? = null
         return try {
-            val url = URL(baseUrl.trimEnd('/') + "/chat/completions")
-            conn = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = 8000
-                readTimeout = readTimeoutMs
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-                if (apiKey.isNotBlank()) {
-                    setRequestProperty("Authorization", "Bearer $apiKey")
-                }
-            }
-
-            val messages = JSONArray()
-                .put(JSONObject().put("role", "system").put("content", system))
-            for ((role, content) in history) {
-                if (content.isBlank()) continue
-                messages.put(JSONObject().put("role", role).put("content", content))
-            }
-            messages.put(JSONObject().put("role", "user").put("content", user))
-
+            conn = open("/chat/completions", readTimeoutMs)
             val body = JSONObject()
                 .put("model", model)
-                .put("messages", messages)
+                .put("messages", buildMessages(system, user, history))
                 .put("temperature", temperature)
                 .put("max_tokens", maxTokens)
                 .put("stream", false)
+                .also { if (frequencyPenalty > 0) it.put("frequency_penalty", frequencyPenalty) }
+                .also { if (presencePenalty > 0) it.put("presence_penalty", presencePenalty) }
                 .toString()
-
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
 
             val code = conn.responseCode
@@ -111,7 +137,202 @@ class LlmClient(context: Context) {
                 lastError = explain(code, text)
                 return null
             }
+            lastError = null
+            extractContent(text)
+        } catch (e: Exception) {
+            lastError = describeException(e)
+            null
+        } finally {
+            try {
+                conn?.disconnect()
+            } catch (_: Exception) {
+            }
+        }
+    }
 
+    // ────────────────────────────── 流式 ──────────────────────────────
+
+    /**
+     * 流式对话：每收到一段就回调一次完整文本（不是增量，调用方直接拿来显示）。
+     *
+     * @param onDelta 每段回调，**在主线程还是工作线程不确定**，由调用方自己切
+     * @return 完整回复；失败且一个字都没收到时返回 null
+     */
+    fun chatStream(
+        system: String,
+        user: String,
+        history: List<Pair<String, String>> = emptyList(),
+        temperature: Double = 0.95,
+        maxTokens: Int = 96,
+        readTimeoutMs: Int = 20000,
+        frequencyPenalty: Double = 0.0,
+        presencePenalty: Double = 0.0,
+        retries: Int = 1,
+        onDelta: (String) -> Unit
+    ): String? {
+        var attempt = 0
+        while (true) {
+            attempt++
+            val sb = StringBuilder()
+            val ok = streamOnce(system, user, history, temperature, maxTokens, readTimeoutMs,
+                frequencyPenalty, presencePenalty) { piece ->
+                sb.append(piece)
+                onDelta(sb.toString())
+            }
+            lastAttempts = attempt
+            if (ok && sb.isNotEmpty()) return sb.toString()
+
+            // 已经收到一半了就别重试，重试会把她说到一半的话再说一遍
+            if (sb.isNotEmpty()) return sb.toString()
+            if (attempt > retries || !retryable(lastError)) return null
+            sleepBeforeRetry(attempt)
+        }
+    }
+
+    /**
+     * @return true 表示走完了流（可能有内容也可能没有）；false 表示连接/HTTP 层失败
+     */
+    private fun streamOnce(
+        system: String,
+        user: String,
+        history: List<Pair<String, String>>,
+        temperature: Double,
+        maxTokens: Int,
+        readTimeoutMs: Int,
+        frequencyPenalty: Double,
+        presencePenalty: Double,
+        onDelta: (String) -> Unit
+    ): Boolean {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = open("/chat/completions", readTimeoutMs)
+            val body = JSONObject()
+                .put("model", model)
+                .put("messages", buildMessages(system, user, history))
+                .put("temperature", temperature)
+                .put("max_tokens", maxTokens)
+                .put("stream", true)
+                .also { if (frequencyPenalty > 0) it.put("frequency_penalty", frequencyPenalty) }
+                .also { if (presencePenalty > 0) it.put("presence_penalty", presencePenalty) }
+                .toString()
+            conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                val err = conn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+                lastError = explain(code, err)
+                return false
+            }
+
+            var sawSse = false
+            var events = 0
+            var rawJson = StringBuilder()
+            conn.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    if (line.isBlank()) continue
+                    if (!line.startsWith("data:")) {
+                        // 有些不支持 stream 的接口会直接吐一整段 JSON
+                        if (!sawSse && line.trimStart().startsWith("{")) {
+                            rawJson.append(line).append('\n')
+                        }
+                        continue
+                    }
+                    sawSse = true
+                    val payload = line.removePrefix("data:").trim()
+                    if (payload == "[DONE]") break
+                    if (payload.isEmpty()) continue
+                    val piece = parseDelta(payload) ?: continue
+                    if (piece.isNotEmpty()) {
+                        events++
+                        onDelta(piece)
+                    }
+                }
+            }
+
+            if (!sawSse && rawJson.isNotEmpty()) {
+                // 整个响应就是一段普通 JSON，按非流式处理
+                val content = extractContent(rawJson.toString())
+                if (content != null) {
+                    onDelta(content)
+                    lastError = null
+                    return true
+                }
+                return false
+            }
+            lastError = null
+            android.util.Log.d("EvilShao", "SSE 结束：增量块=$events 走了流=$sawSse")
+            true
+        } catch (e: SocketTimeoutException) {
+            lastError = "读取超时（${readTimeoutMs / 1000} 秒）"
+            false
+        } catch (e: Exception) {
+            lastError = describeException(e)
+            false
+        } finally {
+            try {
+                conn?.disconnect()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    /** 从一条 SSE 的 data 负载里取 delta.content */
+    private fun parseDelta(payload: String): String? {
+        return try {
+            val obj = JSONObject(payload)
+            val choices = obj.optJSONArray("choices") ?: return null
+            if (choices.length() == 0) return null
+            val first = choices.getJSONObject(0)
+            val delta = first.optJSONObject("delta")
+            if (delta != null) {
+                val c = delta.optString("content", "")
+                if (c.isNotEmpty()) return c
+            }
+            // 少数接口把内容放在 message 里
+            first.optJSONObject("message")?.optString("content", "")?.takeIf { it.isNotEmpty() }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    // ────────────────────────────── 公共零件 ──────────────────────────────
+
+    private fun open(path: String, readTimeoutMs: Int): HttpURLConnection {
+        val url = URL(baseUrl.trimEnd('/') + path)
+        return (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 8000
+            this.readTimeout = readTimeoutMs
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Accept", "text/event-stream, application/json")
+            // 关掉连接池复用带来的 keep-alive 半死连接问题：免费接口经常直接断开
+            setRequestProperty("Connection", "close")
+            if (apiKey.isNotBlank()) {
+                setRequestProperty("Authorization", "Bearer $apiKey")
+            }
+        }
+    }
+
+    private fun buildMessages(
+        system: String,
+        user: String,
+        history: List<Pair<String, String>>
+    ): JSONArray {
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", system))
+        for ((role, content) in history) {
+            if (content.isBlank()) continue
+            messages.put(JSONObject().put("role", role).put("content", content))
+        }
+        messages.put(JSONObject().put("role", "user").put("content", user))
+        return messages
+    }
+
+    /** 从非流式响应里取 choices[0].message.content */
+    private fun extractContent(text: String): String? {
+        return try {
             val obj = JSONObject(text)
             val choices = obj.optJSONArray("choices") ?: run {
                 lastError = "返回里没有 choices：${text.take(120)}"
@@ -125,22 +346,42 @@ class LlmClient(context: Context) {
                 lastError = "没有 message 字段"
                 return null
             }
-            val content = msg.optString("content", "")
-            lastError = null
-            content.trim().ifEmpty {
+            val content = msg.optString("content", "").trim()
+            if (content.isEmpty()) {
                 lastError = "内容为空"
                 null
+            } else {
+                content
             }
         } catch (e: Exception) {
-            lastError = "${e.javaClass.simpleName}: ${e.message}"
-            android.util.Log.e("EvilShao", "LLM 调用失败", e)
+            lastError = "解析失败：${e.javaClass.simpleName}"
             null
-        } finally {
-            try {
-                conn?.disconnect()
-            } catch (_: Exception) {
-            }
         }
+    }
+
+    /** 这类错误值得再试一次；401/402/404 试多少次都一样 */
+    private fun retryable(err: String?): Boolean {
+        val e = err ?: return true
+        return e.contains("429") || e.contains("500") || e.contains("502") ||
+            e.contains("503") || e.contains("504") || e.contains("超时") ||
+            e.contains("限流") || e.contains("繁忙") ||
+            e.contains("SocketTimeout") || e.contains("ConnectException") ||
+            e.contains("UnknownHost") || e.contains("SocketException")
+    }
+
+    private fun sleepBeforeRetry(attempt: Int) {
+        try {
+            // 600ms、1200ms… 不去吓唬服务端，但也要给限流一点恢复时间
+            Thread.sleep(600L * attempt)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+    }
+
+    private fun describeException(e: Exception): String = when (e) {
+        is SocketTimeoutException -> "读取超时"
+        is IOException -> "${e.javaClass.simpleName}: ${e.message}"
+        else -> "${e.javaClass.simpleName}: ${e.message}"
     }
 
     companion object {

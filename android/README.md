@@ -620,3 +620,75 @@ adb shell am start -n com.unclema123.evilshao/.MainActivity --es mood happy
 
 桌面版（Kotlin + JavaFX，仓库 `unclema123/Evil-Shao`）是另一套实现，两者共用同一份
 语录语料（`assets/quotes.txt`）。Android 上 JavaFX 跑不了，所以这里是完全重写的 GLES 版本。
+
+---
+
+# 对话链路改造（2026-11）
+
+这一版把「聊天为什么慢、为什么答非所问、为什么翻来覆去一句话」逐个拆开重做。
+代码仍然是**零第三方依赖**（不引 AndroidX、不引协程），全部用 framework 原生 + JDK 并发类实现。
+
+## 现在的分层
+
+| 文件 | 职责 |
+|---|---|
+| `MainActivity.kt` | 只做界面：控件绑定、气泡、面板、触摸旋转。业务全部委托出去（原来 1016 行、120 个方法） |
+| `ChatBrain.kt` | 对话编排：记忆 → 联网 → 模型 → 本地兜底；单线程队列 + 请求代际（旧请求自动作废） |
+| `LlmClient.kt` | OpenAI 兼容接口：**SSE 流式**、失败重试、频率/存在惩罚 |
+| `Persona.kt` | 人设提示词 + 研究提示词 + 材料拼装 |
+| `ReplyGuard.kt` | 复读检测（字符二元组 Dice 相似度）、按句末标点截断 |
+| `HistoryBudget.kt` | 按字符预算裁上下文（替换固定 100 条） |
+| `ReplyText.kt` | 输出清洗（去引号、挡「作为 AI」这类崩人设的话） |
+| `MoodClassifier.kt` | 从回复内容推表情 |
+| `Query.kt` | 搜索词压缩、上文补全、**该不该联网** |
+
+## 改了什么，为什么
+
+| 现象 | 根因 | 改法 | 实测 |
+|---|---|---|---|
+| 回复要等 20~90 秒才冒出来 | 同步等整段回复；正文串行抓 3 篇（最坏 3×13 秒） | `chatStream()` 走 SSE 边收边显示；`enrichParallel()` 三条线程同时抓 | 首个字 1~3 秒出现；单次回复 16 个增量块 |
+| 连发两句，回答对不上问题 | 每次提问开一个裸 `Thread`，谁先返回谁先说 | 单线程队列 + `generation` 计数，旧请求结果直接丢弃 | 连发只认最后一句 |
+| 免费额度一 429 就突然变成语录 | 失败没有重试 | 429/5xx/超时退避重试一次；确认限流后**立刻**回本地，不再白等两次超时 | 限流场景 19.9 秒 → 13 秒内有回应 |
+| 连着好几轮说同一句话 | 只在提示词里写「别重复」 | `frequency_penalty` / `presence_penalty` + 最近 8 句硬比对 + 进程启动时用聊天记录预热 | 撞车时自动换一句 |
+| 问「你是谁」被答成韩剧，还被存进知识库 | 联网前没有「该不该搜」的判断 | `Query.worthSearching()`：问她本人、寒暄、撒娇不联网；缓存也只服务事实类问题 | 「你是谁」走人设，不再搜索 |
+| 搜索词被上一句污染（`你是谁 hello`） | 补上文只看句长 | 只有出现指代词（那/它/这个/还/然后…）才借上文，且跳过英文寒暄 | 搜索词回到 `你是谁` |
+| 长答案被切在半个词上 | `s.take(maxLen)` | 按句末标点截断（`ReplyGuard.fitToSentence`） | 断句完整 |
+| 聊久了上下文可能超模型上限 | 固定带 100 条 | 字符预算 1200，至少保留最近两轮 | 长对话不再爆上下文 |
+| 缓存命中要等 3.5~20 秒 | 命中后还让模型「用她的口吻重说一遍」 | 命中直接秒回，本地零网络 | **17ms**，且不再被 `style.adapt` 砍掉事实半句 |
+| Activity 销毁后回调还在跑 | `Thread` + `Handler` 无生命周期 | `onDestroy` 关闭编排层，代际自增作废在途请求 | 不再有回调打到已销毁界面 |
+
+## 调试
+
+```bash
+adb logcat -s EvilShao
+```
+
+一行一条，能直接看出每次发生了什么：
+
+```
+提问：济南今天天气怎么样 记忆=true 联网=true
+搜索词=[济南今天天气] 命中=6 有正文=3 错误=null
+SSE 结束：增量块=16 走了流=true
+回复[SEARCH] 4283ms 尝试=1 文本=……
+```
+
+来源有 `MEMORY`（知识库命中，0 次网络请求）/ `SEARCH`（联网查资料）/ `MODEL`（直答）/ `LOCAL`（本地语料兜底）。
+`尝试` 是实际请求次数，大于 1 说明重试过。
+
+## 参考的开源实现
+
+| 参考 | 借了什么 |
+|---|---|
+| [openai-kotlin](https://github.com/aallam/openai-kotlin) | SSE 逐行解析（`data:` 行、`[DONE]` 结束）、流式失败识别 |
+| [kotlin-retry](https://github.com/michaelbull/kotlin-retry) | 指数退避重试的形态（这里只用了线性退避，够用不复杂） |
+| [langchain4j](https://github.com/langchain4j/langchain4j) | `TokenWindowChatMemory` 的窗口裁剪思路（这里用字符数近似 token，避免引依赖） |
+| OpenAI API 文档 | `frequency_penalty` / `presence_penalty` 抑制复读 |
+| [android/architecture-samples](https://github.com/android/architecture-samples) | 分层（UI / 编排 / 数据）的划分方式——但**没有**照搬 AndroidX 依赖 |
+
+## 已知取舍
+
+- 免 Key 的公共接口（Pollinations）高峰期经常 429，查资料读超时压到 10 秒，超时就退直答；
+  换成自己的 Key（智谱 GLM-4-Flash 免费额度）会明显更稳，超时放宽到 30 秒。
+- 复读检测是进程内的，进程重启靠聊天记录预热最近 8 句；跨设备没有共享。
+- 知识库仍是 append-only 的 jsonl，条目多了检索会变慢（几万条以内无感）；
+  真要做大得换倒排索引，目前没必要。
