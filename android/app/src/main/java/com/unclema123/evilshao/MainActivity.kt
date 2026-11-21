@@ -110,6 +110,8 @@ class MainActivity : Activity() {
 
         gl = findViewById(R.id.gl)
         gl.setEGLContextClientVersion(2)
+        // 4x MSAA：边缘锯齿是小猪看着「糙」的主因之一；拿不到多重采样就自动退回普通配置
+        gl.setEGLConfigChooser(MsaaChooser())
         gl.setRenderer(renderer)
         gl.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
 
@@ -844,6 +846,57 @@ class MainActivity : Activity() {
     }
 
     /** 拖动旋转、点一下让她说话 */
+
+    /**
+     * 优先选带 4x 多重采样的 EGL 配置，选不到就用普通的。
+     *
+     * 手写的原因：GLSurfaceView 默认配置一定没有 MSAA，Activity 里也没别处能开，
+     * 只能自己挑 EGLConfig。边缘锯齿是小猪看着「糙」的主因之一。
+     */
+    private class MsaaChooser : GLSurfaceView.EGLConfigChooser {
+        override fun chooseConfig(
+            egl: javax.microedition.khronos.egl.EGL10,
+            display: javax.microedition.khronos.egl.EGLDisplay
+        ): javax.microedition.khronos.egl.EGLConfig? {
+            val configs = arrayOfNulls<javax.microedition.khronos.egl.EGLConfig>(1)
+            val num = IntArray(1)
+            fun pick(attribs: IntArray): javax.microedition.khronos.egl.EGLConfig? {
+                configs[0] = null
+                num[0] = 0
+                return if (egl.eglChooseConfig(display, attribs, configs, 1, num) && num[0] > 0) configs[0] else null
+            }
+            val msaa = intArrayOf(
+                javax.microedition.khronos.egl.EGL10.EGL_RED_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_GREEN_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_BLUE_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_ALPHA_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_DEPTH_SIZE, 16,
+                javax.microedition.khronos.egl.EGL10.EGL_SAMPLE_BUFFERS, 1,
+                javax.microedition.khronos.egl.EGL10.EGL_SAMPLES, 4,
+                javax.microedition.khronos.egl.EGL10.EGL_RENDERABLE_TYPE, 4,
+                javax.microedition.khronos.egl.EGL10.EGL_NONE
+            )
+            pick(msaa)?.let {
+                android.util.Log.d("EvilShao", "EGL: 4x MSAA 已启用")
+                return it
+            }
+            val plain = intArrayOf(
+                javax.microedition.khronos.egl.EGL10.EGL_RED_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_GREEN_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_BLUE_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_ALPHA_SIZE, 8,
+                javax.microedition.khronos.egl.EGL10.EGL_DEPTH_SIZE, 16,
+                javax.microedition.khronos.egl.EGL10.EGL_RENDERABLE_TYPE, 4,
+                javax.microedition.khronos.egl.EGL10.EGL_NONE
+            )
+            pick(plain)?.let {
+                android.util.Log.d("EvilShao", "EGL: 没拿到 MSAA，用普通配置")
+                return it
+            }
+            return null
+        }
+    }
+
     private inner class TouchHandler : View.OnTouchListener {
         private var lastX = 0f
         private var lastY = 0f

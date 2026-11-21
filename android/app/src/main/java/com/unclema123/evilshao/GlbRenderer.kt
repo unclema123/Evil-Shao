@@ -441,14 +441,21 @@ class GlbRenderer(private val context: Context) : GLSurfaceView.Renderer {
                 base = mix(vec3(lum), base, 1.55);
                 base = clamp((base - 0.5) * 1.12 + 0.5, 0.0, 1.0);
 
-                // 环境光抬到 0.70：有了真实法线以后，背光面原来会闷掉，抬一点更「卡通」
-                float shade = 0.70 + 0.42 * diff + fill;
-                vec3 col = base * shade;
+                // 半球环境光：头顶偏冷、脚下偏暖。单一环境光会让背光面糊成一片灰，
+                // 有了方向差以后曲面（脸颊、胳膊）的转折才看得出来。
+                float hemi = 0.5 + 0.5 * n.y;
+                vec3 ambient = mix(vec3(0.50, 0.46, 0.50), vec3(0.72, 0.73, 0.78), hemi);
+                // 0.38 是基础亮度项：只靠 ambient+diff 会比原来暗一截（实测明度 0.35→0.27）
+                vec3 col = base * (0.38 + ambient * 0.55 + diff * 0.50 + fill);
+
+                // 一点高光：鼻尖、耳朵边缘要有「亮」的点，否则看着像毛毡
+                vec3 h = normalize(normalize(uLight) + vec3(0.0, 0.15, 1.0));
+                col += pow(max(dot(n, h), 0.0), 26.0) * 0.16;
 
                 // 顶部轮廓光，把帽子边缘和头形勾出来
                 vec3 viewDir = normalize(vec3(0.0, 0.25, 1.0));
                 float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
-                col += rim * 0.10;
+                col += rim * 0.12;
 
                 gl_FragColor = vec4(col, 1.0);
             }
