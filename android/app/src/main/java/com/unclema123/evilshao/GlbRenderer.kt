@@ -90,6 +90,8 @@ class GlbRenderer(private val context: Context) : GLSurfaceView.Renderer {
     private var centerY = 0f
     private var centerZ = 0f
 
+    private var viewportW = 0
+    private var viewportH = 0
     private var startTime = 0L
     private var moodAmt = 0f
 
@@ -254,6 +256,8 @@ class GlbRenderer(private val context: Context) : GLSurfaceView.Renderer {
     fun isLoaded(): Boolean = loaded
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+        viewportW = width
+        viewportH = height
         GLES20.glViewport(0, 0, width, height)
         val aspect = width.toFloat() / height.toFloat()
         Matrix.perspectiveM(proj, 0, 34f, aspect, 0.5f, 100f)
@@ -379,6 +383,56 @@ class GlbRenderer(private val context: Context) : GLSurfaceView.Renderer {
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, d.count)
             }
         }
+
+        if (dumpPending) {
+            dumpPending = false
+            dumpFrame()
+        }
+    }
+
+    /**
+     * 自检抓帧：直接 glReadPixels 把 GL 画出来的像素读回来，按颜色分类打成字符图。
+     *
+     * 为什么需要这个：模拟器的 screencap 抓不到 GL 层（截出来是窗口底色），
+     * 靠截图核对渲染等于闭着眼睛改代码。这里让 GPU 自己报数。
+     */
+    private fun dumpFrame() {
+        val w = viewportW
+        val h = viewportH
+        if (w <= 0 || h <= 0) {
+            android.util.Log.d("EvilShao", "DUMP|视口为空")
+            return
+        }
+        val cols = 58
+        val rows = 46
+        val px = java.nio.ByteBuffer.allocateDirect(4).order(java.nio.ByteOrder.nativeOrder())
+        val sb = StringBuilder()
+        for (r in 0 until rows) {
+            sb.setLength(0)
+            for (c in 0 until cols) {
+                val x = (c * (w - 1) / (cols - 1)).coerceIn(0, w - 1)
+                val y = ((rows - 1 - r) * (h - 1) / (rows - 1)).coerceIn(0, h - 1)
+                px.position(0)
+                GLES20.glReadPixels(x, y, 1, 1, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, px)
+                val rr = (px.get(0).toInt() and 0xFF) / 255f
+                val gg = (px.get(1).toInt() and 0xFF) / 255f
+                val bb = (px.get(2).toInt() and 0xFF) / 255f
+                val mx = maxOf(rr, gg, bb)
+                val mn = minOf(rr, gg, bb)
+                val sat = if (mx > 1e-4f) (mx - mn) / mx else 0f
+                sb.append(
+                    when {
+                        mx < 0.25f -> '#'                                  // 黑（大底）
+                        sat < 0.13f -> 'w'                                 // 米白（中底/垫面）
+                        sat < 0.30f -> '.'                                 // 灰白过渡
+                        bb / mx > 0.50f -> 'o'                             // 身体（蓝分量高）
+                        gg / mx > 0.55f && rr / mx > 0.55f -> 'Y'          // 黄
+                        else -> 'R'                                        // 红
+                    }
+                )
+            }
+            android.util.Log.d("EvilShao", "DUMP|$r|$sb")
+        }
     }
 
     private fun buildProgram(vs: String, fs: String): Int {
@@ -399,6 +453,9 @@ class GlbRenderer(private val context: Context) : GLSurfaceView.Renderer {
     }
 
     companion object {
+        /** 下一次 onDrawFrame 结束后抓一帧打日志（调试用，只在 adb 触发时才有开销） */
+        @Volatile
+        var dumpPending = false
         private const val VS = """
             uniform mat4 uMvp;
             uniform mat4 uModel;

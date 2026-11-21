@@ -129,6 +129,11 @@ class MainActivity : Activity() {
 
         gl.setOnTouchListener(TouchHandler())
 
+        // 调试：adb ... --es dump 1 会在渲染完后把像素打成字符图（screencap 抓不到 GL 层）
+        if (intent?.getStringExtra("dump") != null) {
+            ui.postDelayed({ GlbRenderer.dumpPending = true }, 2500)
+        }
+
         send.setOnClickListener { submit() }
         input.setOnEditorActionListener { _, _, _ ->
             submit()

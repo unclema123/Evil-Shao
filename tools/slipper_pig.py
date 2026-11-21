@@ -105,8 +105,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--in", dest="src", default=r"C:\Users\Public\evilshao\pig-detail.glb")
     ap.add_argument("--out", dest="dst", default=r"C:\Users\Public\evilshao\pig-slipper.glb")
-    ap.add_argument("--cut-y", type=float, default=0.12)
-    ap.add_argument("--sole-h", type=float, default=0.26, help="鞋底总厚（要盖过切口环，0.13 以上）")
+    ap.add_argument("--cut-y", type=float, default=0.20)
+    ap.add_argument("--sole-h", type=float, default=0.30, help="鞋底总厚")
     ap.add_argument("--wide", type=float, default=1.35, help="比脚宽多少倍")
     ap.add_argument("--long", type=float, default=1.30, help="比脚长多少倍")
     ap.add_argument("--debug-out", default=r"C:\Users\Public\evilshao\slipper-only.glb",
@@ -125,7 +125,9 @@ def main():
     print(f"切口环 {len(ring)} 点, y {ring[:,1].min():.3f}~{ring[:,1].max():.3f}")
 
     parts_v, parts_f, parts_c = [], [], []
-    offset = 0
+    # 鞋的顶点拼在身体后面，索引必须从 len(pos) 起算 ——
+    # 从这里开始算 0 的话，所有鞋面会指到身体顶点上，鞋就「消失」了（踩过两次）。
+    offset = len(pos)
 
     def add(v, f, color):
         nonlocal offset
@@ -137,11 +139,13 @@ def main():
     # 切口环是一道「连在一起」的口（脚踝以下两腿并在一起），
     # 所以做一只大拖鞋把两只脚一起装进去 —— 这也正好是「雷霆大拖鞋」。
     soles = []
-    sec = ring
-    cx = float((sec[:, 0].min() + sec[:, 0].max()) / 2)
-    cz = float((sec[:, 2].min() + sec[:, 2].max()) / 2)
-    hw = float((sec[:, 0].max() - sec[:, 0].min()) / 2 * args.wide + 0.02)
-    hl = float((sec[:, 2].max() - sec[:, 2].min()) / 2 * args.long + 0.03)
+    # 尺寸按「切面以上那一段身体的包围盒」量，而不是按切口环：
+    # 环比脚细，按环做的鞋会让脚从鞋帮外面露出来（上一版就是这样）。
+    lowpart = pos[(pos[:, 1] >= y0) & (pos[:, 1] < y0 + args.cut_y + 0.06)]
+    cx = float((lowpart[:, 0].min() + lowpart[:, 0].max()) / 2)
+    cz = float((lowpart[:, 2].min() + lowpart[:, 2].max()) / 2)
+    hw = float((lowpart[:, 0].max() - lowpart[:, 0].min()) / 2 * args.wide + 0.02)
+    hl = float((lowpart[:, 2].max() - lowpart[:, 2].min()) / 2 * args.long + 0.03)
     hh = args.sole_h / 2
 
     # ① 大底
@@ -168,7 +172,7 @@ def main():
     print(f"大拖鞋: 中心({cx:+.3f},{cz:+.3f}) 宽{hw*2:.2f} 长{hl*2:.2f} 厚{args.sole_h:.3f} 面 {len(sf)}")
 
     cap_pos, cap_faces = hole_cap(ring)
-    cap_start = len(pos) + offset
+    cap_start = offset
 
     sv_all = np.concatenate(parts_v)
     sf_all = np.concatenate(parts_f)
@@ -189,6 +193,10 @@ def main():
              + np.abs((ring[:, 2] - cz) / hl) ** (2 / 0.35))
         covered |= q <= 1.0
     print(f"切口环埋进大底: {covered.sum()}/{len(ring)} = {covered.mean()*100:.0f}%")
+
+    # 不变量：鞋的面必须真的引用鞋的顶点
+    shoe_faces = all_faces[(all_faces >= len(pos)).all(axis=1)]
+    print(f"引用鞋顶点的面: {len(shoe_faces):,}（{len(parts_f)} 组；为 0 就是索引偏移错了）")
 
     # 单独导一份「只有鞋」的调试文件：我看不到图，只能把鞋单独渲染成字符图核对形状
     if args.debug_out:
