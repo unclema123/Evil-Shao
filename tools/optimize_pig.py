@@ -92,7 +92,12 @@ def read_glb(path):
     else:
         faces = np.arange(len(pos), dtype=np.int32).reshape(-1, 3)
 
-    return pos, col, faces
+    nrm = None
+    if "NORMAL" in attrs:
+        nrm, _ = raw(attrs["NORMAL"])
+        nrm = nrm.astype(np.float32)
+
+    return pos, col, faces, nrm
 
 
 # ────────────────────────────── 焊接 ──────────────────────────────
@@ -157,6 +162,53 @@ def transfer_colors(src_pos, src_col, dst_pos, cells=96):
     return out
 
 
+# ────────────────────────────── 颜色/法线 ──────────────────────────────
+
+def boost_colors(rgb, sat=1.0, val=1.0, contrast=1.0):
+    """
+    提饱和度/亮度/对比。
+
+    这个模型的顶点色是 Meshy 烘出来的，平均饱和度只有 0.30（灰扑扑的橄榄绿），
+    所以手机上看着「不鲜艳」。做法是 HSV 里按「越灰的地方提得越多」的曲线拉饱和度
+    （vibrance），纯色不会被推到溢出，灰的地方能明显活过来。
+    """
+    if sat == 1.0 and val == 1.0 and contrast == 1.0:
+        return rgb
+    mx = rgb.max(axis=1, keepdims=True)
+    mn = rgb.min(axis=1, keepdims=True)
+    chroma = mx - mn
+    s_old = np.where(mx > 1e-6, chroma / np.maximum(mx, 1e-6), 0.0)
+    # 灰度越低提得越多：灰的 ×sat，已经很艳的 ×(sat*0.55 + 0.45)
+    factor = sat * (1.0 - s_old * 0.45)
+    s_new = np.clip(s_old * factor, 0.0, 1.0)
+    scale = np.where(s_old > 1e-6, s_new / np.maximum(s_old, 1e-6), 1.0)
+
+    v = mx * val
+    v = np.clip((v - 0.5) * contrast + 0.5, 0.0, 1.0)
+
+    # 保持色相：从 RGB 还原出「单位亮度色」，再按新饱和度和明度重组成 RGB
+    unit = np.where(chroma > 1e-6, (rgb - mn) / np.maximum(chroma, 1e-6), 0.0)
+    out = unit * (s_new * v) + (v - s_new * v)
+    return np.clip(out, 0.0, 1.0)
+
+
+def vertex_normals(pos, faces):
+    """
+    按面积加权的平滑顶点法线。
+
+    原模型根本没有 NORMAL：加载器发现没有法线就给全体顶点塞 (0,0,1)，
+    于是整只猪被「一刀平」地照着，看上去又平又灰 —— 这才是颜色不鲜艳的主因。
+    减面后的网格重新算法线，贴进去渲染立刻就有体积感。
+    """
+    tri = pos[faces]
+    fn = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])  # 长度 = 2×面积
+    acc = np.zeros_like(pos)
+    for k in range(3):
+        np.add.at(acc, faces[:, k], fn)
+    ln = np.linalg.norm(acc, axis=1, keepdims=True)
+    return acc / np.maximum(ln, 1e-12)
+
+
 # ────────────────────────────── 误差度量 ──────────────────────────────
 
 def sample_surface(pos, faces, n, rng):
@@ -213,7 +265,7 @@ def nearest_dist(src, dst, cells=64, rng=None):
 
 # ────────────────────────────── 写 GLB ──────────────────────────────
 
-def write_glb(path, pos, col, faces):
+def write_glb(path, pos, col, faces, normals=None):
     vcount = len(pos)
     # 顶点数能塞进 16 位就用 16 位索引，索引块直接减半
     if vcount <= 65535:
@@ -222,6 +274,7 @@ def write_glb(path, pos, col, faces):
         idx_dtype, idx_ct = np.uint32, 5125
 
     pos_f = pos.astype(np.float32)
+    nrm_f = None if normals is None else normals.astype(np.float32)
     col_b = np.clip(np.round(col * 255.0), 0, 255).astype(np.uint8)
     # 颜色是 VEC4，alpha 拉满
     col_b4 = np.concatenate([col_b, np.full((vcount, 1), 255, dtype=np.uint8)], axis=1)
@@ -231,7 +284,10 @@ def write_glb(path, pos, col, faces):
         r = len(b) % 4
         return b + filler * ((4 - r) % 4)
 
-    blobs = [pos_f.tobytes(), col_b4.tobytes(), idx.tobytes()]
+    blobs = [pos_f.tobytes()]
+    if nrm_f is not None:
+        blobs.append(nrm_f.tobytes())
+    blobs += [col_b4.tobytes(), idx.tobytes()]
     views, offset = [], 0
     for b in blobs:
         views.append({"buffer": 0, "byteOffset": offset, "byteLength": len(b)})
@@ -244,24 +300,34 @@ def write_glb(path, pos, col, faces):
 
     mn = pos_f.min(axis=0).tolist()
     mx = pos_f.max(axis=0).tolist()
+
+    accs = [{"bufferView": 0, "componentType": 5126, "count": vcount,
+             "type": "VEC3", "min": mn, "max": mx}]
+    attrs = {"POSITION": 0}
+    next_view = 1
+    if nrm_f is not None:
+        accs.append({"bufferView": next_view, "componentType": 5126,
+                     "count": vcount, "type": "VEC3"})
+        attrs["NORMAL"] = next_view
+        next_view += 1
+    accs.append({"bufferView": next_view, "componentType": 5121, "count": vcount,
+                 "type": "VEC4", "normalized": True})
+    attrs["COLOR_0"] = next_view
+    next_view += 1
+    accs.append({"bufferView": next_view, "componentType": idx_ct,
+                 "count": len(idx), "type": "SCALAR"})
+
     js = {
         "asset": {"version": "2.0", "generator": "EvilShao optimize_pig.py (meshoptimizer)"},
         "scene": 0,
         "scenes": [{"nodes": [0]}],
         "nodes": [{"mesh": 0}],
         "meshes": [{"primitives": [{
-            "attributes": {"POSITION": 0, "COLOR_0": 1},
-            "indices": 2,
+            "attributes": attrs,
+            "indices": len(attrs),
             "mode": 4,
         }]}],
-        "accessors": [
-            {"bufferView": 0, "componentType": 5126, "count": vcount,
-             "type": "VEC3", "min": mn, "max": mx},
-            {"bufferView": 1, "componentType": 5121, "count": vcount,
-             "type": "VEC4", "normalized": True},
-            {"bufferView": 2, "componentType": idx_ct, "count": len(idx),
-             "type": "SCALAR"},
-        ],
+        "accessors": accs,
         "bufferViews": views,
         "buffers": [{"byteLength": len(binchunk)}],
     }
@@ -286,10 +352,15 @@ def main():
     ap.add_argument("--agg", type=float, default=7.0,
                     help="0=尽量保形但慢，10=快但糙（meshoptimizer 的 aggressiveness）")
     ap.add_argument("--no-weld", action="store_true")
+    ap.add_argument("--no-normals", action="store_true",
+                    help="不写 NORMAL（默认写，没法线会平的一塌糊涂）")
+    ap.add_argument("--sat", type=float, default=1.0, help="饱和度倍数，1=原样")
+    ap.add_argument("--val", type=float, default=1.0, help="明度倍数")
+    ap.add_argument("--contrast", type=float, default=1.0, help="对比度")
     args = ap.parse_args()
 
     import os
-    pos, col, faces = read_glb(args.src)
+    pos, col, faces, _ = read_glb(args.src)
     src_mb = os.path.getsize(args.src) / 1048576
     n0, t0 = len(pos), len(faces)
     print(f"原始: {n0:,} 顶点 / {t0:,} 三角形 / {src_mb:.2f} MB")
@@ -323,12 +394,16 @@ def main():
     a = sample_surface(pos, faces, 40000, rng)
     b = sample_surface(v, f, 40000, rng)
     d1 = nearest_dist(a, b) / diag * 100
-    d2 = nearest_dist(b, v[np.random.default_rng(8).choice(len(v), 20000, replace=False)]) / diag * 100
+    d2 = nearest_dist(b, v[np.random.default_rng(8).choice(len(v), min(20000, len(v)), replace=False)]) / diag * 100
     print(f"形状误差（相对包围盒对角线）")
     print(f"  原表面→新表面: 平均 {d1.mean():.2f}% / P99 {np.percentile(d1, 99):.2f}% / 最大 {d1.max():.2f}%")
     print(f"  新表面→原起点: 平均 {d2.mean():.2f}% / P99 {np.percentile(d2, 99):.2f}%")
 
-    idx_ct = write_glb(args.dst, v, c, f)
+    rgb = boost_colors(c, args.sat, args.val, args.contrast)
+    nrm = None if args.no_normals else vertex_normals(v, f)
+    if nrm is not None:
+        print(f"法线: 已生成 {len(nrm):,} 条（原模型没有 NORMAL）")
+    idx_ct = write_glb(args.dst, v, rgb, f, nrm)
     dst_mb = os.path.getsize(args.dst) / 1048576
     print(f"输出: {args.dst}")
     print(f"      {dst_mb:.2f} MB（原 {src_mb:.2f} MB，-{(1 - dst_mb / src_mb) * 100:.0f}%）"

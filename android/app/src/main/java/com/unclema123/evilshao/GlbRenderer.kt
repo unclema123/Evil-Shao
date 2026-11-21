@@ -69,10 +69,13 @@ class GlbRenderer(private val context: Context) : GLSurfaceView.Renderer {
 
     private class Drawable(
         val vbo: FloatBuffer,
-        val ibo: IntBuffer?,
+        /** 索引缓冲：顶点数 ≤ 65535 时用 ShortBuffer，显存和总线带宽各减一半 */
+        val ibo: java.nio.Buffer?,
         val count: Int,
         val texture: Int,
-        val hasVertexColor: Boolean
+        val hasVertexColor: Boolean,
+        /** ibo 是不是 16 位无符号 */
+        val indexShort: Boolean = false
     )
 
     private val drawables = ArrayList<Drawable>()
@@ -220,16 +223,27 @@ class GlbRenderer(private val context: Context) : GLSurfaceView.Renderer {
             }
             data.position(0)
 
-            val ibo = p.indices?.let {
-                ByteBuffer.allocateDirect(it.size * 4).order(ByteOrder.LITTLE_ENDIAN)
-                    .asIntBuffer().apply { put(it); position(0) }
+            // 16 位能装下就用 16 位：32 位索引在手机上等于多传一倍带宽
+            val useShort = n <= 65535
+            val ibo: java.nio.Buffer? = p.indices?.let { idx ->
+                if (useShort) {
+                    val buf = ByteBuffer.allocateDirect(idx.size * 2)
+                        .order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+                    for (i in idx) buf.put(i.toShort())
+                    buf.position(0)
+                    buf
+                } else {
+                    ByteBuffer.allocateDirect(idx.size * 4).order(ByteOrder.LITTLE_ENDIAN)
+                        .asIntBuffer().apply { put(idx); position(0) }
+                }
             }
             val tex = if (p.textureIndex in textures.indices) textures[p.textureIndex] else whiteTex[0]
             Drawable(
                 data, ibo,
                 p.indices?.size ?: n,
                 tex,
-                hasColor
+                hasColor,
+                useShort
             ).also { drawables.add(it) }
         }
 
@@ -357,7 +371,9 @@ class GlbRenderer(private val context: Context) : GLSurfaceView.Renderer {
             if (ibo != null) {
                 ibo.position(0)
                 GLES20.glDrawElements(
-                    GLES20.GL_TRIANGLES, d.count, GLES20.GL_UNSIGNED_INT, ibo
+                    GLES20.GL_TRIANGLES, d.count,
+                    if (d.indexShort) GLES20.GL_UNSIGNED_SHORT else GLES20.GL_UNSIGNED_INT,
+                    ibo
                 )
             } else {
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, d.count)
@@ -421,10 +437,12 @@ class GlbRenderer(private val context: Context) : GLSurfaceView.Renderer {
                 // 顶点色是插值出来的，天生偏灰偏糊。
                 // 提一点饱和度和对比，再把高光收窄，细节会「立」起来。
                 float lum = dot(base, vec3(0.299, 0.587, 0.114));
-                base = mix(vec3(lum), base, 1.22);
-                base = clamp((base - 0.5) * 1.08 + 0.5, 0.0, 1.0);
+                // 顶点色本来偏灰：提到 1.55，再压一点亮度溢出
+                base = mix(vec3(lum), base, 1.55);
+                base = clamp((base - 0.5) * 1.12 + 0.5, 0.0, 1.0);
 
-                float shade = 0.60 + 0.46 * diff + fill;
+                // 环境光抬到 0.70：有了真实法线以后，背光面原来会闷掉，抬一点更「卡通」
+                float shade = 0.70 + 0.42 * diff + fill;
                 vec3 col = base * shade;
 
                 // 顶部轮廓光，把帽子边缘和头形勾出来

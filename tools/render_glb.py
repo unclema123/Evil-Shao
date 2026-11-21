@@ -19,7 +19,7 @@ from optimize_pig import read_glb  # noqa: E402
 
 
 def render(path, out, size=(520, 640), yaw=0.35, pitch=0.18, ss=2):
-    pos, col, faces = read_glb(path)
+    pos, col, faces, vnrm = read_glb(path)
     # 颜色统一成 RGB（GLB 里是 VEC4）
     rgb = col[:, :3]
     if rgb.max() <= 1.0:
@@ -47,7 +47,12 @@ def render(path, out, size=(520, 640), yaw=0.35, pitch=0.18, ss=2):
 
     # 面法线（用于简单明暗），顶点色取三角面平均
     tri = p[faces]
-    n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+    if vnrm is not None:
+        # 有顶点法线就按「三个顶点法线取平均」当光照法线，接近真实的光滑着色；
+        # 没有就用面法线（原模型就是这种，所以看起来一块一块的）
+        n = vnrm[faces[:, 0]] + vnrm[faces[:, 1]] + vnrm[faces[:, 2]]
+    else:
+        n = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
     n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
     light = np.array([0.3, 0.5, 0.8])
     light /= np.linalg.norm(light)
@@ -95,8 +100,8 @@ def render(path, out, size=(520, 640), yaw=0.35, pitch=0.18, ss=2):
 
 
 if __name__ == "__main__":
-    a, fa = render(r"C:\Users\Public\evilshao\pig-orig.glb", r"C:\Users\Public\evilshao\render-old.png")
-    b, fb = render(r"C:\Users\Public\evilshao\pig-opt.glb", r"C:\Users\Public\evilshao\render-new.png")
+    a, fa = render(r"C:\Users\Public\evilshao\pig-opt.glb", r"C:\Users\Public\evilshao\render-old.png")
+    b, fb = render(r"C:\Users\Public\evilshao\pig-vivid.glb", r"C:\Users\Public\evilshao\render-new.png")
     print("像素:", a.shape, " 覆盖像素 旧", int(fa.sum()), "新", int(fb.sum()))
     iou = (fa & fb).sum() / max(1, (fa | fb).sum())
     print(f"轮廓 IoU: {iou:.4f}")
