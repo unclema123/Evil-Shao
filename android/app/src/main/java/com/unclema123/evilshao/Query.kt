@@ -46,10 +46,31 @@ object Query {
         val t = text.trim()
         if (t.length < 2) return false
         if (SMALL_TALK_FULL.matches(t)) return false
+        // 问她叫什么、她是谁——这是人设问题，上网只会搜出同名路人
+        if (SELF_NAME.containsMatchIn(t)) return false
         // 「你是谁」「你叫什么」「你多大」「你喜欢什么」——问的是她自己
         if (t.length <= 8 && SELF_QUESTION.containsMatchIn(t)) return false
         return true
     }
+
+    /**
+     * 这句是不是在问事。
+     *
+     * 用途有两个：问事实时把温度压低（要准），斗嘴时才放开；
+     * 连不上时也靠它决定回「没连上」还是可以随口吐槽。
+     */
+    fun looksLikeQuestion(text: String): Boolean {
+        val t = text.trim()
+        if (t.isEmpty()) return false
+        if (QUESTION_MARK.containsMatchIn(t)) return true
+        return t.length >= 4 && QUESTION_WORD.containsMatchIn(t)
+    }
+
+    private val QUESTION_MARK = Regex("[?？]")
+
+    private val QUESTION_WORD = Regex(
+        "吗|呢|什么|怎么|为什么|为啥|多少|几个|哪|谁|啥|如何|是不是|有没有|能不能|可不可以"
+    )
 
     /** 整句就是寒暄/语气词 */
     private val SMALL_TALK_FULL = Regex(
@@ -58,9 +79,36 @@ object Query {
         RegexOption.IGNORE_CASE
     )
 
+    /** 她的名字/网名，问到这些也不搜 */
+    private val SELF_NAME = Regex("邵珠佳|Whisper|小猪", RegexOption.IGNORE_CASE)
+
     /** 问她自己的句式 */
     private val SELF_QUESTION = Regex(
         "^(你|您)(是|叫|姓|多大|几岁|喜欢|爱|会|在|住|吃|睡|忙|干|做|觉得|认为|有|的|好|长|想|最近|今天|现在|平时)"
+    )
+
+    /**
+     * 从搜索词里抽「实词」，用来判断抓回来的资料是不是在讲同一件事。
+     *
+     * 实测：问「那明天呢」（承接济南天气），Bing 回来的正文是「南方将出现大范围阴雨」，
+     * 模型照着念就成了答非所问。带上「济南」这个实词一过滤，这种资料直接丢掉，
+     * 宁可只剩一条，也不要一条错的。
+     */
+    fun anchors(searchWord: String): List<String> {
+        var s = searchWord
+        // 先剔掉时间词和问句虚词，不然「济南今天天气」会整串当成一个实词，
+        // 资料里永远匹配不上，切题率直接变 0
+        for (w in STOP_WORDS) s = s.replace(w, " ")
+        return s.split(Regex("[^\\u4e00-\\u9fa5A-Za-z0-9]+"))
+            .filter { it.length >= 2 }
+            .distinct()
+    }
+
+    /** 时间和问句里的虚词，不算「在讲哪件事」 */
+    private val STOP_WORDS = setOf(
+        "今天", "明天", "后天", "昨天", "前天", "现在", "目前", "最新", "最近", "刚刚",
+        "天气", "气温", "情况", "怎么", "什么", "多少", "为什么", "如何", "哪个", "哪些",
+        "是不是", "有没有", "能不能", "可不可以", "告诉我", "说一下", "查一下"
     )
 
     fun toSearchQuery(raw: String): String {
@@ -114,11 +162,19 @@ object Query {
     /** 纯英文/数字的上一句多半是寒暄或命令，不是话题 */
     private val CJK = Regex("[\\u4e00-\\u9fa5]")
 
-    fun withContext(q: String, prevUsers: List<String>): String {
+    /**
+     * @param original 用户原话。判断「有没有指代」必须看原话——
+     *        搜索词已经被 [toSearchQuery] 把「那」去掉了，
+     *        拿去掉之后的结果判断，「那明天呢」就永远补不上主语，
+     *        搜出来的东西从「济南天气」变成「明天」两个字，答非所问。
+     * @param q 已经压缩过的搜索词
+     */
+    fun withContext(original: String, q: String, prevUsers: List<String>): String {
+        val raw = original.trim()
         // 句子够长说明主语自己带着，别画蛇添足
-        if (q.length >= 8 || prevUsers.isEmpty()) return q
+        if (raw.length >= 8 || prevUsers.isEmpty()) return q
         // 没有指代就说明这句是独立的（「你是谁」不该接上一句的茬）
-        if (!REFERENTIAL.containsMatchIn(q)) return q
+        if (!REFERENTIAL.containsMatchIn(raw)) return q
         for (p in prevUsers.asReversed()) {
             val t = p.trim()
             if (t.isEmpty() || SMALL_TALK.matches(t)) continue

@@ -1,21 +1,21 @@
 package com.unclema123.evilshao
 
 import java.util.concurrent.Executors
+import kotlin.random.Random
 
 /**
- * 对话编排：一次提问要经过「记忆 → 联网 → 模型 → 本地兜底」四道关，
- * 这四步原来全塞在 MainActivity 里（还是 1000 行 Activity 的一部分）。
+ * 对话编排：一次提问只走一条路，最多打**一次**模型请求。
  *
- * 抽出来以后有三点好处：
+ * 上一版为了「答得更全」串了四条路（记忆 → 查资料 → 直答 → 复读重试），
+ * 结果是：免费额度 45 秒 1 条，一个问题打 4 次请求必然 429，
+ * 于是绝大多数消息都掉进「随机语录」兜底——看起来就是答非所问、没有条理。
  *
- * 1. **请求代际（generation）**：用户连发两句时，旧请求的结果会作废。
- *    以前两个 Thread 并发跑，谁先返回谁先说 —— 先问的「济南天气」慢，
- *    后问的「你是谁」快，回复就颠倒了。
- *
- * 2. **单线程串行**：所有请求排一条队列，聊天记录 append 的顺序不会乱。
- *
- * 3. **可测试**：这里不碰任何 View，只通过 [Listener] 回调，
- *    逻辑错了能在 JVM 上直接跑，不用开模拟器。
+ * 这一版的原则：
+ *  1. **一次请求**：查资料成功就结束；失败且不是限流，才允许用一次直答补救。
+ *  2. **宁可少说也不乱说**：失败不再甩随机语录，而是给一句「网不行，等会儿」；
+ *     随机语录只在用户自己没配大模型（纯离线玩具模式）时用。
+ *  3. **复读不再重打一次**：提示词里点出最近 3 句就够，撞车也照发——
+ *     重复一句切题的，好过换一句不着边际的。
  */
 class ChatBrain(
     private val llm: LlmClient,
@@ -70,7 +70,6 @@ class ChatBrain(
         }
     }
 
-    /** 由外部（点小猪随机说话）写入，让复读检测也知道 */
     fun noteSaid(text: String) {
         synchronized(recentReplies) {
             recentReplies.addLast(text)
@@ -89,7 +88,7 @@ class ChatBrain(
                 run(myGen, text)
             } catch (e: Exception) {
                 android.util.Log.e("EvilShao", "对话流程异常", e)
-                if (!stale(myGen)) local(myGen, text)
+                if (!stale(myGen)) honest(myGen, text)
             }
         }
     }
@@ -103,69 +102,172 @@ class ChatBrain(
     // ────────────────────────────── 主流程 ──────────────────────────────
 
     private fun run(gen: Int, text: String) {
-        // 没配大模型：纯本地语料，不发请求
+        // 用户根本没配大模型：这就是个纯语录玩具，保持原来的玩法
         if (!llm.isConfigured()) {
-            local(gen, text)
+            quip(gen, text)
             return
         }
 
-        val styleHint = style.hint()
-        val banned = ReplyGuard.bannedBlock(recentList())
+        val fact = Query.worthSearching(text)      // 事实类问题：该查、该吃缓存
+        val question = Query.looksLikeQuestion(text)
 
-        // ① 记忆命中：不直接念旧答案，而是让模型用她的口吻重说一遍。
-        //    以前命中就原样返回，问法一变（但 bigram 撞上）就会答非所问。
-        val hit = try {
-            knowledge.find(text)
-        } catch (e: Exception) {
-            null
-        }
-        log("提问：$text 记忆=${hit != null} 联网=${llm.searchEnabled && Query.worthSearching(text)}")
-        // 只有「事实类问题」才吃缓存。像「你是谁」这种问她自己/寒暄的话，
-        // 命中旧答案反而答得驴唇不对马嘴（曾经答成韩剧），一律走人设。
-        if (hit != null && Query.worthSearching(text) && !stale(gen)) {
-            val ok = memoryPath(gen, hit.answer)
-            if (ok) return
-        }
-
-        // ② 联网：搜不到就退回直答，不硬等
-        if (llm.searchEnabled && Query.worthSearching(text) && !stale(gen)) {
-            status(gen, "……我查一下")
-            val ok = searchPath(gen, text, styleHint, banned)
-            if (ok) return
-            // 被限流/欠费时再走直答只会再失败一次，白等两个读超时
-            if (rateLimited()) {
-                log("限流，跳过直答直接回本地")
-                local(gen, text)
-                return
+        // ① 知识库：只有事实类问题才吃缓存，避免拿旧答案糊弄「你是谁」这类话
+        if (fact) {
+            val hit = try {
+                knowledge.find(text)
+            } catch (e: Exception) {
+                null
+            }
+            if (hit != null) {
+                log("记忆命中 score=${String.format("%.2f", hit.score)} 答案=${hit.answer}")
+                if (deliver(gen, hit.answer, Source.MEMORY)) return
+                log("这条刚说过，改走模型")
             }
         }
 
-        // ③ 直接问模型
-        if (!stale(gen)) {
-            val ok = plainPath(gen, text, styleHint, banned)
-            if (ok) return
+        val styleHint = style.hint()
+
+        // ② 事实类且开了联网：查资料（一次模型请求）
+        if (fact && llm.searchEnabled && !stale(gen)) {
+            status(gen, "……我查一下")
+            val usable = fetchFor(gen, text)
+            if (usable.isNotEmpty() && !stale(gen)) {
+                if (research(gen, text, usable)) return
+                // 限流/欠费时再打一次必然还失败，直接说人话
+                if (rateLimited()) {
+                    log("限流，不再纠正答")
+                    honest(gen, text)
+                    return
+                }
+            } else if (!stale(gen)) {
+                status(gen, "……没搜到，我凭印象说")
+            }
         }
 
-        // ④ 全挂了，回本地，保证有回应
-        if (!stale(gen)) local(gen, text)
+        // ③ 人设直答（最后一次模型请求）
+        if (!stale(gen) && persona(gen, text, styleHint, question)) return
+
+        // ④ 兜底：给一句有关系的话，而不是随机语录
+        honest(gen, text)
+    }
+
+    /** 查资料作答 */
+    private fun research(gen: Int, text: String, usable: List<WebSearch.Hit>): Boolean {
+        val thin = llm.keyless
+        val context = try {
+            chatLog.lastExchange()
+        } catch (e: Exception) {
+            ""
+        }
+        val raw = llm.chatStream(
+            Persona.researchPrompt(),
+            Persona.materialPrompt(text, if (thin) usable.take(2) else usable, context),
+            history = HistoryBudget.build(safeEntries(), budget = 900),
+            temperature = 0.25,
+            maxTokens = if (thin) 120 else 220,
+            readTimeoutMs = if (thin) 10000 else 30000,
+            retries = 0,
+            onDelta = { partial -> stream(gen, partial) }
+        )
+        if (raw == null) {
+            log("查资料失败：${llm.lastError}")
+            return false
+        }
+        val clean = ReplyText.sanitize(raw, 60) ?: run {
+            log("查资料输出清洗后为空：$raw")
+            return false
+        }
+        if (knowledge.isNonAnswer(clean)) {
+            log("资料没答上来：$clean")
+            return false
+        }
+        try {
+            knowledge.save(text, clean, usable.map { it.url })
+            postToUi { listener.onMemorySaved() }
+        } catch (_: Exception) {
+        }
+        return deliver(gen, clean, Source.SEARCH, ignoreEcho = true)
+    }
+
+    /** 人设直答 */
+    private fun persona(gen: Int, text: String, styleHint: String, question: Boolean): Boolean {
+        val thin = llm.keyless
+        val sys = Persona.systemPrompt(
+            quotes,
+            styleHint,
+            // 只点最近 3 句。列 6 句以上，模型为了「不重复」会开始胡说八道
+            ReplyGuard.bannedBlock(recentList(), 3)
+        )
+        val raw = llm.chatStream(
+            sys, text, history(),
+            // 问事实时压低温度要准确，斗嘴时才放开
+            temperature = if (question) 0.65 else 0.95,
+            maxTokens = 96,
+            readTimeoutMs = if (thin) 12000 else 20000,
+            frequencyPenalty = 0.6,
+            presencePenalty = 0.3,
+            retries = if (thin) 0 else 1,
+            onDelta = { partial -> stream(gen, partial) }
+        )
+        if (raw == null) {
+            log("直答失败：${llm.lastError}")
+            return false
+        }
+        val clean = ReplyText.sanitize(raw, 40) ?: run {
+            log("直答输出清洗后为空：$raw")
+            return false
+        }
+        return deliver(gen, clean, Source.MODEL, ignoreEcho = true)
     }
 
     /**
-     * 用记忆里的答案作答。
+     * 纯离线模式（用户关掉了大模型）。
      *
-     * 这里**不**再跑一趟模型。缓存的意义就是快——实测让模型「用她的口吻重说一遍」
-     * 要 3.5 秒，赶上免费接口抽风能拖到读超时 20 秒，用户只会觉得她卡住了。
-     * 口吻的修正交给本地 style.adapt（几十微秒，还能离线用）。
+     * 原来的玩法是「随机抽一句语录」，问题在于语录跟用户说的话毫无关系：
+     * 「你好」→「瞎说」、「你在说啥」→「谁跟你一样」，连说三句就是精神分裂。
+     * 现在改成：关键词规则真的对得上就用规则回复，否则给一句**接得住这句话**的短应答。
+     * 想听她随口吐槽，点她本人就行（那条路仍然是随机签名）。
      */
-    private fun memoryPath(gen: Int, memory: String): Boolean {
-        // 不做 style.adapt：它会按「你说话短」把长句砍成一截，
-        // 实测把「多云转晴，八到十五度。」砍成了「多云转晴」——事实丢了。
-        return accept(gen, memory, Source.MEMORY)
+    private fun quip(gen: Int, text: String) {
+        if (stale(gen)) return
+        val matched = try {
+            quotes.matchedReply(text)
+        } catch (e: Exception) {
+            null
+        }
+        if (matched != null) {
+            deliver(gen, style.adapt(matched), Source.LOCAL, ignoreEcho = true)
+            return
+        }
+        val pool = if (Query.looksLikeQuestion(text)) OFFLINE_QUESTION else OFFLINE_CHAT
+        deliver(gen, pool[Random.nextInt(pool.size)], Source.LOCAL, ignoreEcho = true)
     }
 
-    /** 联网查资料 */
-    private fun searchPath(gen: Int, text: String, styleHint: String, banned: String): Boolean {
+    /**
+     * 模型不可用时的兜底。
+     *
+     * 关键：**不能说随机语录**。语录跟用户这句话没关系，
+     * 连说三句就是「答非所问」，比沉默更让人烦躁。
+     * 这里给一句跟「没连上」有关的话，至少逻辑自洽。
+     */
+    private fun honest(gen: Int, text: String) {
+        if (stale(gen)) return
+        // 语录里如果有能对上的关键词规则，就用它（那是有关系的）
+        val matched = try {
+            quotes.matchedReply(text)
+        } catch (e: Exception) {
+            null
+        }
+        val line = matched?.let { style.adapt(it) }
+            ?: OFFLINE_LINES[Random.nextInt(OFFLINE_LINES.size)]
+        deliver(gen, line, Source.LOCAL, ignoreEcho = true)
+    }
+
+    // ────────────────────────────── 工具 ──────────────────────────────
+
+    private fun fetchFor(gen: Int, text: String): List<WebSearch.Hit> {
         val searchWord = Query.withContext(
+            text,
             Query.toSearchQuery(text),
             try {
                 chatLog.recentMine(4)
@@ -180,89 +282,32 @@ class ChatBrain(
         } catch (e: Exception) {
             emptyList<WebSearch.Hit>()
         }
-        if (stale(gen)) return true
-
-        log("搜索词=[$searchWord] 命中=${hits.size} 有正文=${hits.count { it.body.isNotEmpty() }} 错误=${web.lastError}")
-        val usable = hits.sortedByDescending { it.body.length }
+        // 用问题里的实词筛一遍：问济南天气，就别把「南方阴雨」的稿子喂给模型
+        val anchors = Query.anchors(searchWord)
+        val scored = hits.map { h ->
+            val hay = h.title + " " + h.snippet + " " + h.body
+            h to anchors.count { hay.contains(it) }
+        }
+        val onTopic = if (anchors.isEmpty()) scored else scored.filter { it.second > 0 }
+        log(
+            "搜索词=[$searchWord] 实词=$anchors 命中=${hits.size} " +
+                "切题=${onTopic.size} 有正文=${hits.count { it.body.isNotEmpty() }} 错误=${web.lastError}"
+        )
+        // 全是别处的事（问济南、资料写南方）：宁可不用，也别拿它冒充答案。
+        // 直接返回空，让上层退成「凭印象直答」，比喂错材料又快又不丢人。
+        if (anchors.isNotEmpty() && onTopic.isEmpty()) {
+            log("资料都不切题，跳过查资料")
+            return emptyList()
+        }
+        val pool = if (onTopic.isEmpty()) scored else onTopic
+        return pool
+            .sortedWith(
+                compareByDescending<Pair<WebSearch.Hit, Int>> { it.second }
+                    .thenByDescending { it.first.body.length }
+            )
+            .map { it.first }
             .filter { it.body.isNotEmpty() || it.snippet.length >= 20 }
-        if (usable.isEmpty()) {
-            // 没搜到就别装作查过
-            status(gen, "……没连上，我先凭印象")
-            return false
-        }
-
-        val context = try {
-            chatLog.lastExchange()
-        } catch (e: Exception) {
-            ""
-        }
-        // 免 Key 的公共接口又慢又爱 429：材料少给、超时收紧。
-        // 宁可退成「直答一句」，也别让她在那儿转 40 秒。
-        val thin = llm.keyless
-        val raw = llm.chatStream(
-            Persona.researchPrompt(),
-            Persona.materialPrompt(text, if (thin) usable.take(2) else usable, context),
-            // 查资料时上下文短一点，把预算留给材料
-            history = HistoryBudget.build(safeEntries(), budget = 400),
-            temperature = 0.25,
-            maxTokens = if (thin) 120 else 220,
-            readTimeoutMs = if (thin) 10000 else 30000,
-            retries = 0,
-            onDelta = { partial -> stream(gen, partial) }
-        )
-        if (raw == null) log("查资料模型失败：${llm.lastError}")
-        val clean = ReplyText.sanitize(raw, 60)
-        if (clean == null) return false
-        if (knowledge.isNonAnswer(clean)) {
-            // 「不知道」不记账，也不当最终答案回给她
-            return false
-        }
-        if (!stale(gen)) {
-            try {
-                knowledge.save(text, clean, usable.map { it.url })
-                postToUi { listener.onMemorySaved() }
-            } catch (_: Exception) {
-            }
-        }
-        return accept(gen, clean, Source.SEARCH)
     }
-
-    /** 不带资料，纯人设对话 */
-    private fun plainPath(gen: Int, text: String, styleHint: String, banned: String): Boolean {
-        val sys = Persona.systemPrompt(quotes, styleHint, banned)
-        val raw = llm.chatStream(
-            sys, text, history(),
-            temperature = 0.95,
-            maxTokens = 96,
-            // 复读抑制：小模型连着说同一句时，这两个参数比提示词管用
-            frequencyPenalty = 0.6,
-            presencePenalty = 0.3,
-            onDelta = { partial -> stream(gen, partial) }
-        )
-        if (raw == null) log("直答模型失败：${llm.lastError}")
-        val clean = ReplyText.sanitize(raw, 40)
-        if (clean == null) return false
-        if (accept(gen, clean, Source.MODEL)) return true
-
-        // 撞上复读了：再要一次，并且明确点名刚说过哪句
-        val retrySys = sys + "\n\n注意：你刚才又想重复「$clean」，这次必须换一句完全不同的话。"
-        val second = llm.chat(retrySys, text, history(), temperature = 1.05, maxTokens = 96, retries = 0)
-        val clean2 = ReplyText.sanitize(second, 40)
-        return clean2 != null && accept(gen, clean2, Source.MODEL)
-    }
-
-    /** 本地语料兜底 */
-    private fun local(gen: Int, text: String) {
-        if (stale(gen)) return
-        val raw = try {
-            quotes.reply(text)
-        } catch (e: Exception) {
-            "……"
-        }
-        accept(gen, style.adapt(raw), Source.LOCAL)
-    }
-
-    // ────────────────────────────── 工具 ──────────────────────────────
 
     private fun history(): List<Pair<String, String>> =
         HistoryBudget.build(safeEntries(), budget = HistoryBudget.DEFAULT_BUDGET)
@@ -277,16 +322,31 @@ class ChatBrain(
 
     private fun stale(gen: Int) = gen != generation
 
-    /** 复读校验 + 记录 + 回调。返回 false 表示这句被拒了，调用方可以换一条 */
-    private fun accept(gen: Int, reply: String, source: Source): Boolean {
+    /** 上次失败是因为限流/额度/鉴权，重试和换路径都没意义 */
+    private fun rateLimited(): Boolean {
+        val e = llm.lastError ?: return false
+        return e.contains("限流") || e.contains("429") || e.contains("402") ||
+            e.contains("额度") || e.contains("401") || e.contains("Key 无效")
+    }
+
+    /**
+     * 交付一句给界面。
+     *
+     * @param ignoreEcho 模型说的话跟最近某句很像时是否照发。
+     *        模型这条一律 true：重复一句切题的，好过换一句不着边际的；
+     *        知识库那条 false：缓存答句一模一样时换条路，否则每次问同一句都是复读。
+     */
+    private fun deliver(gen: Int, reply: String, source: Source, ignoreEcho: Boolean = false): Boolean {
         if (stale(gen)) return true
         val text = reply.trim()
         if (text.isEmpty()) return false
         if (ReplyGuard.isEchoOf(text, recentList())) {
-            log("复读被拦：$text")
-            return false
+            if (!ignoreEcho) {
+                log("复读被拦：$text")
+                return false
+            }
+            log("与最近某句相似，仍照发：$text")
         }
-
         noteSaid(text)
         log("回复[$source] ${System.currentTimeMillis() - startedAt}ms 尝试=${llm.lastAttempts} 文本=$text")
         postToUi { listener.onReply(text, source != Source.LOCAL) }
@@ -298,11 +358,9 @@ class ChatBrain(
         postToUi { listener.onStream(partial) }
     }
 
-    /** 上次失败是因为限流/额度/鉴权，重试和换路径都没意义 */
-    private fun rateLimited(): Boolean {
-        val e = llm.lastError ?: return false
-        return e.contains("限流") || e.contains("429") || e.contains("402") ||
-            e.contains("额度") || e.contains("401") || e.contains("Key 无效")
+    private fun status(gen: Int, text: String) {
+        if (stale(gen)) return
+        postToUi { listener.onStatus(text) }
     }
 
     /** 统一前缀，方便 adb logcat -s EvilShao 过滤 */
@@ -310,8 +368,31 @@ class ChatBrain(
         android.util.Log.d("EvilShao", msg)
     }
 
-    private fun status(gen: Int, text: String) {
-        if (stale(gen)) return
-        postToUi { listener.onStatus(text) }
+    companion object {
+        /**
+         * 连不上模型时的回答。
+         *
+         * 挑的都是「接得住对方那句」的话——至少不会出现
+         * 「你在说啥」→「谁跟你一样」这种驴唇不对马嘴的对话。
+         */
+        private val OFFLINE_LINES = listOf(
+            "……网不行，等会儿再说",
+            "……先等等，我这边没连上",
+            "……等会儿，卡住了",
+            "……我缓缓，网太烂"
+        )
+
+        /** 离线时被问到问题：承认答不了，但接住这句话 */
+        private val OFFLINE_QUESTION = listOf(
+            "……我这会儿查不了",
+            "……等我连上网再说",
+            "……你问这么难，我哪知道",
+            "……先别问，没联网"
+        )
+
+        /** 离线时的闲聊应答：短，但至少是在跟你说话 */
+        private val OFFLINE_CHAT = listOf(
+            "嗯", "……哦", "行吧", "你说啥"
+        )
     }
 }

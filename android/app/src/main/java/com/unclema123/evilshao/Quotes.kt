@@ -87,6 +87,31 @@ class Quotes(context: Context) {
     }
 
     /**
+     * 只回「关键词真的对得上」的规则回复；一句都对不上就返回 null。
+     *
+     * 给编排层用。随机的签名/兜底句拿来应答用户打的字，
+     * 就会变成「你在说啥」→「谁跟你一样」这种没头没脑的对话。
+     */
+    fun matchedReply(input: String): String? {
+        val text = input.trim()
+        if (text.isEmpty()) return null
+        var best: Rule? = null
+        var bestScore = 0
+        for (r in rules) {
+            var score = 0
+            for (k in r.keys) {
+                if (text.contains(k, ignoreCase = true)) score += k.length
+            }
+            if (score > bestScore) {
+                bestScore = score
+                best = r
+            }
+        }
+        val rule = best ?: return null
+        return pick(rule.replies, text)
+    }
+
+    /**
      * 从候选池里按「学到的权重」抽一句。
      *
      * learner 为空时退化成均匀随机；有权重时，被夸过的句子更容易被挑中，

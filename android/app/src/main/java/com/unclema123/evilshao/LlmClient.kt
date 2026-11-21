@@ -31,11 +31,11 @@ class LlmClient(context: Context) {
     private val prefs = context.getSharedPreferences("llm", Context.MODE_PRIVATE)
 
     var enabled: Boolean
-        get() = prefs.getBoolean("enabled", false)
+        get() = prefs.getBoolean("enabled", true)
         set(v) = prefs.edit().putBoolean("enabled", v).apply()
 
     var baseUrl: String
-        get() = prefs.getString("baseUrl", DEFAULT_BASE) ?: DEFAULT_BASE
+        get() = prefs.getString("baseUrl", KEYLESS_BASE) ?: KEYLESS_BASE
         set(v) = prefs.edit().putString("baseUrl", v.trim()).apply()
 
     var apiKey: String
@@ -44,11 +44,11 @@ class LlmClient(context: Context) {
 
     /** 免 Key 模式：不发送 Authorization 头，用于 Pollinations 这类公开接口 */
     var keyless: Boolean
-        get() = prefs.getBoolean("keyless", false)
+        get() = prefs.getBoolean("keyless", true)
         set(v) = prefs.edit().putBoolean("keyless", v).apply()
 
     var model: String
-        get() = prefs.getString("model", DEFAULT_MODEL) ?: DEFAULT_MODEL
+        get() = prefs.getString("model", KEYLESS_MODEL) ?: KEYLESS_MODEL
         set(v) = prefs.edit().putString("model", v.trim()).apply()
 
     /** 联网搜索开关：查不到就上网找，找到会存进本地知识库 */
