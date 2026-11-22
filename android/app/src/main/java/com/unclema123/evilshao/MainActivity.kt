@@ -429,6 +429,9 @@ class MainActivity : Activity() {
 
     private fun learnPanelText(): String {
         val sb = StringBuilder(learner.report())
+        sb.append("\n\n── 人物风格 ──\n")
+        sb.append("短句、爱怼、爱自夸；被夸会得意，心情好时自称「朕」。\n")
+        sb.append("你夸别的女生，她会说反话阴阳回去。")
         sb.append("\n\n── 你怎么说话（本地学的）──\n")
         sb.append(style.summary())
         sb.append("\n\n── 自己造的新句（按质量分排序）──\n")

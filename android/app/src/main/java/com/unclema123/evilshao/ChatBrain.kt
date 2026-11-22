@@ -192,11 +192,23 @@ class ChatBrain(
     /** 人设直答 */
     private fun persona(gen: Int, text: String, styleHint: String, question: Boolean): Boolean {
         val thin = llm.keyless
+        // 上下文信号：他是不是在夸别的女生；她现在高不高兴。
+        // 阴阳的场合不叠加「朕」——两种风格撞一起会四不像。
+        val recentTexts = try {
+            chatLog.recent(8).map { it.message }
+        } catch (e: Exception) {
+            emptyList<String>()
+        }
+        val praised = PersonaSignals.praiseOfOtherWoman(text)
+        val happy = praised == null && PersonaSignals.isHappy(text, recentTexts)
+        if (praised != null || happy) log("情境：夸别人=[$praised] 高兴=$happy")
         val sys = Persona.systemPrompt(
             quotes,
             styleHint,
             // 只点最近 3 句。列 6 句以上，模型为了「不重复」会开始胡说八道
-            ReplyGuard.bannedBlock(recentList(), 3)
+            ReplyGuard.bannedBlock(recentList(), 3),
+            praisedWoman = praised,
+            happy = happy
         )
         val raw = llm.chatStream(
             sys, text, history(),
@@ -230,6 +242,13 @@ class ChatBrain(
      */
     private fun quip(gen: Int, text: String) {
         if (stale(gen)) return
+        // 纯离线也要认得「夸别的女生」：不然只会回一句牛头不对马嘴的语录
+        val praised = PersonaSignals.praiseOfOtherWoman(text)
+        if (praised != null) {
+            log("离线阴阳：$praised")
+            deliver(gen, style.adapt(pickSarcastic()), Source.LOCAL, ignoreEcho = true)
+            return
+        }
         val matched = try {
             quotes.matchedReply(text)
         } catch (e: Exception) {
@@ -242,6 +261,9 @@ class ChatBrain(
         val pool = if (Query.looksLikeQuestion(text)) OFFLINE_QUESTION else OFFLINE_CHAT
         deliver(gen, pool[Random.nextInt(pool.size)], Source.LOCAL, ignoreEcho = true)
     }
+
+    /** 离线阴阳话：短、酸，但还接得住「他在夸别人」这件事 */
+    private fun pickSarcastic(): String = SARCASTIC[Random.nextInt(SARCASTIC.size)]
 
     /**
      * 模型不可用时的兜底。
@@ -393,6 +415,18 @@ class ChatBrain(
         /** 离线时的闲聊应答：短，但至少是在跟你说话 */
         private val OFFLINE_CHAT = listOf(
             "嗯", "……哦", "行吧", "你说啥"
+        )
+
+        /**
+         * 离线时听说他在夸别的女生。
+         * 现成的阴阳话，比随机语录切题；走大模型时按提示词自由发挥。
+         */
+        private val SARCASTIC = listOf(
+            "是是是，她最好了",
+            "好看，滤镜开的吧",
+            "那你找她聊啊",
+            "呵呵，真会夸",
+            "她那么好，你去找她"
         )
     }
 }
