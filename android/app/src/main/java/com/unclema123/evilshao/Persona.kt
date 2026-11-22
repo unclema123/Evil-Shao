@@ -13,6 +13,7 @@ object Persona {
      *                     这样问法变了也接得住，也不会像复读机
      * @param praisedWoman 他刚夸的别的女生（原话）。非空时这一句必须阴阳回去
      * @param happy        这会儿心情不错（被夸、赢了、得意），可以自称「朕」
+     * @param selfExamples 她本人在类似情境下真说过的话（本人模式攒的），用来校准语气
      */
     fun systemPrompt(
         quotes: Quotes,
@@ -20,7 +21,8 @@ object Persona {
         banned: String = "",
         memory: String = "",
         praisedWoman: String? = null,
-        happy: Boolean = false
+        happy: Boolean = false,
+        selfExamples: List<String> = emptyList()
     ): String {
         val examples = quotes.signatures.take(30).joinToString("；")
         val sb = StringBuilder()
@@ -34,6 +36,11 @@ object Persona {
             sb.appendLine("先假意承认再挑刺，或者直接酸一句，不许顺着夸，也不许骂人发火。）")
         }
         if (happy) sb.appendLine("（你现在心情不错，这一句可以自称「朕」，就这一句，别连着用。）")
+        if (selfExamples.isNotEmpty()) {
+            sb.appendLine("（她本人在类似情境下是这么说的，只学语气和用词，不要照抄：")
+            selfExamples.forEach { sb.appendLine("· $it") }
+            sb.appendLine("）")
+        }
         sb.appendLine("硬性要求：")
         sb.appendLine("1. 每条回复 3~16 个字，绝对不超过 20 个字。")
         sb.appendLine("2. 只说一句话，不要解释、不要展开、不要反问式客套。")

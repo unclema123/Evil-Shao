@@ -63,6 +63,9 @@ class MainActivity : Activity() {
     private lateinit var web: WebSearch
     private lateinit var knowledge: Knowledge
     private lateinit var style: StyleProfile
+    /** 本人模式：她自己在用，她打的每句话都当语料存下来 */
+    private lateinit var selfCorpus: SelfCorpus
+    private var selfMode = false
 
     /** 对话编排（记忆 / 联网 / 模型 / 本地兜底）都在这里，Activity 只管界面 */
     private lateinit var brain: ChatBrain
@@ -94,6 +97,9 @@ class MainActivity : Activity() {
 
         renderer = GlbRenderer(this)
 
+        selfCorpus = SelfCorpus(this)
+        selfMode = getSharedPreferences("input", MODE_PRIVATE).getBoolean("selfMode", false)
+
         // 业务逻辑全部委托给 ChatBrain；这里只负责把回调反映到界面上
         brain = ChatBrain(
             llm = llm,
@@ -102,6 +108,7 @@ class MainActivity : Activity() {
             quotes = quotes,
             style = style,
             chatLog = chatLog,
+            self = selfCorpus,
             listener = object : ChatBrain.Listener {
                 override fun onStatus(text: String) = say(text)
                 override fun onStream(partial: String) = sayPartial(partial)
@@ -183,6 +190,11 @@ class MainActivity : Activity() {
             closeMenu()
             showLearner()
         }
+        findViewById<TextView>(R.id.item_self).setOnClickListener {
+            closeMenu()
+            toggleSelfMode()
+        }
+        updateSelfLabel()
         findViewById<TextView>(R.id.item_name).setOnClickListener {
             closeMenu()
             showNameSettings(firstRun = false)
@@ -303,6 +315,16 @@ class MainActivity : Activity() {
         }
 
         if (raw.isEmpty()) return
+        // 本人模式：她打的这句话就是语料本身，配上一句当上下文。
+        // 不弹窗、不让她答题——她正常聊天，学习在后台发生。
+        if (selfMode) {
+            val prev = try {
+                chatLog.recent(1).lastOrNull()?.message ?: ""
+            } catch (e: Exception) {
+                ""
+            }
+            if (selfCorpus.add(prev, raw)) panelText?.text = learnPanelText()
+        }
         val keepTyping = input.hasFocus() && !noIme
         input.text.clear()
         chatLog.append("我", raw)
@@ -521,6 +543,13 @@ class MainActivity : Activity() {
         sb.append("你夸别的女生，她会说反话阴阳回去。")
         sb.append("\n\n── 你怎么说话（本地学的）──\n")
         sb.append(style.summary())
+        sb.append("\n\n── 本人模式 ──\n")
+        if (selfMode) {
+            sb.append("已打开：她打的每句话都会存下来（带上一句当上下文），已学 ")
+                .append(selfCorpus.size()).append(" 句。")
+        } else {
+            sb.append("未打开：菜单 →「本人模式」，她正常聊天就行，不用答题。")
+        }
         sb.append("\n\n── 自己造的新句（按质量分排序）──\n")
         if (quotes.invented.isEmpty()) {
             sb.append("（还没有，点「再造几句」让她想想）")
@@ -698,7 +727,7 @@ class MainActivity : Activity() {
      */
     private fun showAbout() {
         val msg = StringBuilder()
-            .append("版本 1.10 · 角色扮演小玩具\n\n")
+            .append("版本 1.11 · 角色扮演小玩具\n\n")
             .append("· 她是角色，不是真人：台词由你选的模型实时生成，偶尔抽风很正常。\n")
             .append("· 聊天记录只存这台手机（files/chatlog.jsonl），「聊天记录」里能随时清空；")
             .append("除了发给你选的大模型接口，不会上传到别处。\n")
@@ -760,6 +789,45 @@ class MainActivity : Activity() {
     }
 
     /** 大模型设置：接口地址 / 模型 / Key */
+    private fun updateSelfLabel() {
+        findViewById<TextView>(R.id.item_self).text = if (selfMode) "本人模式 · 开" else "本人模式"
+    }
+
+    /**
+     * 本人模式：她自己在用的时候打开。
+     * 不做问卷、不弹评分——她正常聊，她打的每句话连同上一句一起存成语料，
+     * 在线时挑最像的几句塞进提示词，离线时直接找她说过的那句。
+     */
+    private fun toggleSelfMode() {
+        if (selfMode) {
+            selfMode = false
+            getSharedPreferences("input", MODE_PRIVATE).edit()
+                .putBoolean("selfMode", false).apply()
+            updateSelfLabel()
+            panelText?.text = learnPanelText()
+            Toast.makeText(this, "本人模式：关（已学的 ${selfCorpus.size()} 句还在）", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("本人模式")
+            .setMessage(
+                "打开后，她打的每句话都会在这台手机上存成语料（连同上一句当上下文），" +
+                    "在线回复时会挑最像的几句作为例子发给接口。\n\n" +
+                    "不用答题、不用打分，正常聊就行。\n\n" +
+                    "前提：她本人知道这个软件在模仿她，并且同意。"
+            )
+            .setPositiveButton("打开") { _, _ ->
+                selfMode = true
+                getSharedPreferences("input", MODE_PRIVATE).edit()
+                    .putBoolean("selfMode", true).apply()
+                updateSelfLabel()
+                panelText?.text = learnPanelText()
+                Toast.makeText(this, "本人模式：开。她正常聊就行，不用答题。", Toast.LENGTH_LONG).show()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
     private fun showAiSettings() {
         val pad = (18 * resources.displayMetrics.density).toInt()
 

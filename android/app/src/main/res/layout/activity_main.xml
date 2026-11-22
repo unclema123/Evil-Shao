@@ -150,6 +150,11 @@
             android:text="@string/learn" />
 
         <TextView
+            android:id="@+id/item_self"
+            style="@style/MenuRow"
+            android:text="@string/menu_self" />
+
+        <TextView
             android:id="@+id/item_name"
             style="@style/MenuRow"
             android:text="@string/menu_name" />

@@ -24,6 +24,8 @@ class ChatBrain(
     private val quotes: Quotes,
     private val style: StyleProfile,
     private val chatLog: ChatLog,
+    /** 本人模式攒的问答对；没开就是空壳 */
+    private val self: SelfCorpus? = null,
     private val listener: Listener,
     /** 把回调切到主线程，一般是 Handler(Looper.getMainLooper())::post */
     private val postToUi: (Runnable) -> Unit
@@ -202,13 +204,24 @@ class ChatBrain(
         val praised = PersonaSignals.praiseOfOtherWoman(text)
         val happy = praised == null && PersonaSignals.isHappy(text, recentTexts)
         if (praised != null || happy) log("情境：夸别人=[$praised] 高兴=$happy")
+        val selfExamples = try {
+            self?.examples(text, 4)?.map { p ->
+                // 带上下文的例子才有用：只说「她会这么说」，模型不知道在接什么话
+                if (p.q.isBlank()) "她说过「${p.a}」" else "对方说「${p.q}」，她回「${p.a}」"
+            } ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+        if (selfExamples.isNotEmpty()) log("本人例子 ${selfExamples.size} 句：${selfExamples.first()}")
         val sys = Persona.systemPrompt(
             quotes,
             styleHint,
             // 只点最近 3 句。列 6 句以上，模型为了「不重复」会开始胡说八道
             ReplyGuard.bannedBlock(recentList(), 3),
             praisedWoman = praised,
-            happy = happy
+            happy = happy,
+            // 本人模式：她真在类似情境下说过的话，比任何规则都准
+            selfExamples = selfExamples
         )
         val raw = llm.chatStream(
             sys, text, history(),
@@ -247,6 +260,16 @@ class ChatBrain(
         if (praised != null) {
             log("离线阴阳：$praised")
             deliver(gen, style.adapt(pickSarcastic()), Source.LOCAL, ignoreEcho = true)
+            return
+        }
+        val mine = try {
+            self?.best(text)
+        } catch (e: Exception) {
+            null
+        }
+        if (mine != null) {
+            log("本人语料命中：$mine")
+            deliver(gen, style.adapt(mine), Source.LOCAL, ignoreEcho = true)
             return
         }
         val matched = try {
