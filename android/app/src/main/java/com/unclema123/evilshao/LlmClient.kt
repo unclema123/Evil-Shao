@@ -405,13 +405,7 @@ class LlmClient(context: Context) {
         }
 
         /** 预设供应商，方便切换 */
-        /** 火山方舟：豆包系列，OpenAI 兼容，地址固定是这个 */
-        const val DOUBAO_BASE = "https://ark.cn-beijing.volces.com/api/v3"
-        const val DOUBAO_MODEL = "doubao-seed-1-6-250615"
-
         val PRESETS = listOf(
-            Triple("豆包 Seed 1.6（火山方舟）", DOUBAO_BASE, DOUBAO_MODEL),
-            Triple("豆包 1.5 Lite（便宜）", DOUBAO_BASE, "doubao-1-5-lite-32k-250115"),
             Triple("智谱 GLM-4-Flash（免费）", "https://open.bigmodel.cn/api/paas/v4", "glm-4-flash"),
             Triple("硅基流动 Qwen2.5-7B（免费额度）", "https://api.siliconflow.cn/v1", "Qwen/Qwen2.5-7B-Instruct"),
             Triple("DeepSeek Chat（便宜，非免费）", "https://api.deepseek.com/v1", "deepseek-chat")

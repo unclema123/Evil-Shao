@@ -981,33 +981,3 @@ python tools/shoes_pig.py --in pig-detail.glb --out pig-shoe.glb \
 **另外**：大拖鞋的尺寸改成按「切面以上那一段身体」量，鞋做成 0.75×0.71×0.30——
 把整个下半身罩住；之前按切口环量，鞋比脚细，脚会从鞋帮外面露出来。
 修正后低于鞋顶、横向在鞋外的身体顶点只剩 2 个。
-
-### 第七轮：本地跑开源 TripoSR 图生 3D
-
-用户问「能不能用你的 token 直接调豆包」。我这边**没有任何云服务凭据**（查过环境变量、配置目录、CLI，全空），
-HuggingFace 在这台机器上又不通，所以走了一条不需要 Key 的路：**在本机跑开源的 TripoSR**。
-
-**搭起来的过程（都可复现）**
-
-| 步骤 | 说明 |
-|---|---|
-| 环境 | `venv` + torch 2.5.1 (CPU) + transformers 4.35 + trimesh + xatlas + moderngl |
-| 代码 | `git clone https://github.com/VAST-AI-Research/TripoSR` |
-| 权重 | 官方走 HuggingFace，被墙；改用 ModelScope：`AI-ModelScope/TripoSR`（model.ckpt 1.6G）+ `AI-ModelScope/dino-vitb16`（327M） |
-| 补丁 1 | `torchmcubes` 在 Windows 要 MSVC+CUDA 才能编，改成 skimage 的 marching cubes 兜底 |
-| 补丁 2 | `rembg` 依赖太重，改成可选（我们自己的输入图先抠好背景） |
-| 补丁 3 | `--no-remove-bg` 支持 RGBA：透明底按 TripoSR 正规流程压到中灰，否则整张图会被当成一个方块重建（填充率 0.79 那种） |
-| 补丁 4 | 输出目录要自己建（`--no-remove-bg` 分支不建） |
-
-**实测**：CPU 上一张图约 35 秒（网络 15s + 抽网格 20s）。
-
-**踩坑记录**
-
-- 第一版直接喂「正面平铺渲染图」→ 重建出一块板子（bbox 接近立方体、填充率 0.79）。
-- 第二版喂「3/4 视角 + 中灰底」→ 还是方块：因为灰色背景被当成物体的一部分。
-- 关键检查：拿仓库自带示例（robot.png / captured.jpeg）对照，填充率 0.36 / 0.23 正常，
-  而我们的是 0.79 → 确认是输入问题，不是管线问题。
-- 最后用仓库里的设计参考图 `ref-front.png` 抠成透明底 → 填充率 **0.24**，形状正常。
-
-**转换**：`tools/optimize_pig.py` 把 TripoSR 的 7.3 万面减到 4 万面，
-颜色按就近转移，重新算法线，输出 0.76 MB 的 GLB（app 直接能读顶点色）。

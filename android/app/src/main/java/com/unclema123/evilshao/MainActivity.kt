@@ -704,18 +704,6 @@ class MainActivity : Activity() {
                 result.text = "已填好免 Key 接口，点「保存」立刻生效"
             }
         }
-        val doubaoBtn = Button(this).apply {
-            text = "填豆包（火山方舟）"
-            setOnClickListener {
-                etBase.setText(LlmClient.DOUBAO_BASE)
-                etModel.setText(LlmClient.DOUBAO_MODEL)
-                cbKeyless.isChecked = false
-                cb.isChecked = true
-                cbSearch.isChecked = true
-                result.text = "已填好火山方舟地址。粘上 Ark API Key 再保存；" +
-                    "模型名报错的话，把控制台里「接入点 ID」（ep- 开头）填进模型名"
-            }
-        }
         val probeBtn = Button(this).apply {
             text = "测试连接"
             setOnClickListener {
@@ -763,7 +751,6 @@ class MainActivity : Activity() {
             })
             addView(etKey)
             addView(tip)
-            addView(doubaoBtn)
             addView(testBtn)
             addView(result)
         }
