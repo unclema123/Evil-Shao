@@ -10,6 +10,7 @@
     <string name="menu_name">名字</string>
     <string name="menu_ai">AI</string>
     <string name="menu_ime">输入法</string>
+    <string name="menu_about">关于</string>
     <string name="menu_close">收起</string>
 
     <style name="MenuRow">

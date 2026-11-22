@@ -56,8 +56,49 @@ class LlmClient(context: Context) {
         get() = prefs.getBoolean("search", true)
         set(v) = prefs.edit().putBoolean("search", v).apply()
 
-    fun isConfigured(): Boolean =
-        enabled && baseUrl.isNotBlank() && model.isNotBlank() && (apiKey.isNotBlank() || keyless)
+    /**
+     * 主接口挂了自动换免 Key 公开接口。
+     *
+     * 换来的是「她不会突然哑掉」，代价是这句话会发给另一个公开服务，
+     * 所以做成开关：默认开，介意的话可以关掉。
+     */
+    var autoFallback: Boolean
+        get() = prefs.getBoolean("autoFallback", true)
+        set(v) = prefs.edit().putBoolean("autoFallback", v).apply()
+
+    /** 刚失败的接口，冷却期内排到最后，别每次都从坏的那个开始撞 */
+    private val cooldownUntil = HashMap<String, Long>()
+
+    /** 上一次成功的接口 id，下一轮先试它 */
+    @Volatile
+    private var lastGoodId: String? = null
+
+    /** 用户当前填的那条（没填全就返回 null） */
+    private fun userProvider(): LlmProviders.P? {
+        val base = baseUrl.trim()
+        val m = model.trim()
+        if (base.isEmpty() || m.isEmpty()) return null
+        if (!keyless && apiKey.isBlank()) return null
+        return LlmProviders.P("当前设置", base, m, apiKey, keyless)
+    }
+
+    /** 这一轮要依次试的接口；冷却中的排最后，但全冷却时仍然硬试，不能整机哑掉 */
+    private fun providers(): List<LlmProviders.P> {
+        val user = userProvider()
+        val free = if (autoFallback) LlmProviders.FREE else emptyList()
+        if (user == null && free.isEmpty()) return emptyList()
+        val plan = LlmProviders.plan(user, lastGoodId, free)
+        val now = System.currentTimeMillis()
+        return plan.sortedBy { if ((cooldownUntil[it.id] ?: 0L) > now) 1 else 0 }
+    }
+
+    /** 给界面上看的：这一轮大概会走哪几条 */
+    fun planSummary(): String {
+        val list = providers()
+        return if (list.isEmpty()) "没有可用接口" else list.joinToString(" → ") { it.label }
+    }
+
+    fun isConfigured(): Boolean = enabled && providers().isNotEmpty()
 
     /** 最近一次失败的原始原因，界面上能看到 */
     @Volatile
@@ -91,19 +132,42 @@ class LlmClient(context: Context) {
         presencePenalty: Double = 0.0,
         retries: Int = 1
     ): String? {
-        var attempt = 0
-        while (true) {
-            attempt++
-            val r = once(system, user, history, temperature, maxTokens, readTimeoutMs,
-                frequencyPenalty, presencePenalty)
-            lastAttempts = attempt
-            if (r != null) return r
-            if (attempt > retries || !retryable(lastError)) return null
-            sleepBeforeRetry(attempt)
+        val list = providers()
+        if (list.isEmpty()) {
+            lastError = "没有可用的接口"
+            return null
         }
+        lastAttempts = 0
+        var firstError: String? = null
+        for (p in list) {
+            var attempt = 0
+            while (true) {
+                attempt++
+                lastAttempts++
+                val r = once(p, system, user, history, temperature, maxTokens, readTimeoutMs,
+                    frequencyPenalty, presencePenalty)
+                if (r != null) {
+                    lastGoodId = p.id
+                    cooldownUntil.remove(p.id)
+                    if (p.id != list.first().id) {
+                        android.util.Log.d("EvilShao", "已切到备用接口：${p.label}")
+                    }
+                    return r
+                }
+                if (firstError == null) firstError = lastError
+                if (attempt > retries || !retryable(lastError)) break
+                sleepBeforeRetry(attempt)
+            }
+            cooldownUntil[p.id] = System.currentTimeMillis() + COOLDOWN_MS
+            android.util.Log.d("EvilShao", "接口不可用，换下一个：${p.label}（$lastError）")
+        }
+        // 全挂了：报第一个的真实原因，别让最后一条把它盖成别的
+        lastError = firstError ?: lastError
+        return null
     }
 
     private fun once(
+        p: LlmProviders.P,
         system: String,
         user: String,
         history: List<Pair<String, String>>,
@@ -115,9 +179,9 @@ class LlmClient(context: Context) {
     ): String? {
         var conn: HttpURLConnection? = null
         return try {
-            conn = open("/chat/completions", readTimeoutMs)
+            conn = open(p, "/chat/completions", readTimeoutMs)
             val body = JSONObject()
-                .put("model", model)
+                .put("model", p.model)
                 .put("messages", buildMessages(system, user, history))
                 .put("temperature", temperature)
                 .put("max_tokens", maxTokens)
@@ -170,29 +234,51 @@ class LlmClient(context: Context) {
         retries: Int = 1,
         onDelta: (String) -> Unit
     ): String? {
-        var attempt = 0
-        while (true) {
-            attempt++
-            val sb = StringBuilder()
-            val ok = streamOnce(system, user, history, temperature, maxTokens, readTimeoutMs,
-                frequencyPenalty, presencePenalty) { piece ->
-                sb.append(piece)
-                onDelta(sb.toString())
-            }
-            lastAttempts = attempt
-            if (ok && sb.isNotEmpty()) return sb.toString()
-
-            // 已经收到一半了就别重试，重试会把她说到一半的话再说一遍
-            if (sb.isNotEmpty()) return sb.toString()
-            if (attempt > retries || !retryable(lastError)) return null
-            sleepBeforeRetry(attempt)
+        val list = providers()
+        if (list.isEmpty()) {
+            lastError = "没有可用的接口"
+            return null
         }
+        lastAttempts = 0
+        var firstError: String? = null
+        for (p in list) {
+            var attempt = 0
+            while (true) {
+                attempt++
+                lastAttempts++
+                val sb = StringBuilder()
+                val ok = streamOnce(p, system, user, history, temperature, maxTokens,
+                    readTimeoutMs, frequencyPenalty, presencePenalty) { piece ->
+                    sb.append(piece)
+                    onDelta(sb.toString())
+                }
+                if (ok && sb.isNotEmpty()) {
+                    lastGoodId = p.id
+                    cooldownUntil.remove(p.id)
+                    if (p.id != list.first().id) {
+                        android.util.Log.d("EvilShao", "已切到备用接口：${p.label}")
+                    }
+                    return sb.toString()
+                }
+
+                // 已经收到一半了就别换接口，换了她会从头再说一遍
+                if (sb.isNotEmpty()) return sb.toString()
+                if (firstError == null) firstError = lastError
+                if (attempt > retries || !retryable(lastError)) break
+                sleepBeforeRetry(attempt)
+            }
+            cooldownUntil[p.id] = System.currentTimeMillis() + COOLDOWN_MS
+            android.util.Log.d("EvilShao", "接口不可用，换下一个：${p.label}（$lastError）")
+        }
+        lastError = firstError ?: lastError
+        return null
     }
 
     /**
      * @return true 表示走完了流（可能有内容也可能没有）；false 表示连接/HTTP 层失败
      */
     private fun streamOnce(
+        p: LlmProviders.P,
         system: String,
         user: String,
         history: List<Pair<String, String>>,
@@ -205,9 +291,9 @@ class LlmClient(context: Context) {
     ): Boolean {
         var conn: HttpURLConnection? = null
         return try {
-            conn = open("/chat/completions", readTimeoutMs)
+            conn = open(p, "/chat/completions", readTimeoutMs)
             val body = JSONObject()
-                .put("model", model)
+                .put("model", p.model)
                 .put("messages", buildMessages(system, user, history))
                 .put("temperature", temperature)
                 .put("max_tokens", maxTokens)
@@ -298,8 +384,8 @@ class LlmClient(context: Context) {
 
     // ────────────────────────────── 公共零件 ──────────────────────────────
 
-    private fun open(path: String, readTimeoutMs: Int): HttpURLConnection {
-        val url = URL(baseUrl.trimEnd('/') + path)
+    private fun open(p: LlmProviders.P, path: String, readTimeoutMs: Int): HttpURLConnection {
+        val url = URL(p.base.trimEnd('/') + path)
         return (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 8000
@@ -309,8 +395,9 @@ class LlmClient(context: Context) {
             setRequestProperty("Accept", "text/event-stream, application/json")
             // 关掉连接池复用带来的 keep-alive 半死连接问题：免费接口经常直接断开
             setRequestProperty("Connection", "close")
-            if (apiKey.isNotBlank()) {
-                setRequestProperty("Authorization", "Bearer $apiKey")
+            // 只有用户自己的接口才带 Key；免 Key 的公开接口带了反而会被拒
+            if (!p.keyless && p.key.isNotBlank()) {
+                setRequestProperty("Authorization", "Bearer ${p.key}")
             }
         }
     }
@@ -411,8 +498,11 @@ class LlmClient(context: Context) {
             Triple("DeepSeek Chat（便宜，非免费）", "https://api.deepseek.com/v1", "deepseek-chat")
         )
 
-        /** 不需要填 Key 的公开接口 */
-        const val KEYLESS_BASE = "https://text.pollinations.ai/openai"
-        const val KEYLESS_MODEL = "openai"
+        /** 不需要填 Key 的公开接口（真正的列表在 LlmProviders.FREE 里） */
+        const val KEYLESS_BASE = LlmProviders.KEYLESS_BASE
+        const val KEYLESS_MODEL = LlmProviders.KEYLESS_MODEL
+
+        /** 一个接口刚失败，多久之内不再优先试它（1 分钟） */
+        private const val COOLDOWN_MS = 60_000L
     }
 }

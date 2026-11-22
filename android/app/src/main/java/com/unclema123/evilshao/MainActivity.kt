@@ -166,6 +166,10 @@ class MainActivity : Activity() {
             closeMenu()
             showAiSettings()
         }
+        findViewById<TextView>(R.id.item_about).setOnClickListener {
+            closeMenu()
+            showAbout()
+        }
         findViewById<TextView>(R.id.item_ime).setOnClickListener {
             closeMenu()
             noIme = !noIme
@@ -447,6 +451,7 @@ class MainActivity : Activity() {
         }
         sb.append("\n── 大模型 ──\n")
         sb.append(llmStatusText())
+        sb.append("\n接口顺序：").append(llm.planSummary())
         llm.lastError?.let { sb.append("\n最近一次失败：").append(it) }
 
         sb.append("\n\n── 联网学习 ──\n")
@@ -539,7 +544,8 @@ class MainActivity : Activity() {
         }
         val tip = TextView(this).apply {
             text = if (firstRun) {
-                "聊天记录要分清谁在说话。给自己起个名字，以后点左上角标题就能改。"
+                "聊天记录要分清谁在说话。给自己起个名字，以后点左上角标题就能改。\n\n" +
+                    "她是角色扮演，不是真人；聊天只存本机，菜单「关于」里有说明。"
             } else {
                 "只影响聊天记录里显示的称呼，最多 12 个字。"
             }
@@ -601,6 +607,26 @@ class MainActivity : Activity() {
             putExtra(Intent.EXTRA_TEXT, body)
         }
         startActivity(Intent.createChooser(intent, "分享聊天记录"))
+    }
+
+    /**
+     * 「关于」：把「她是角色不是真人」「记录只存本机」「素材从哪来」三件事说清楚。
+     * 这几句看着像废话，真出事的时候它们就是边界。
+     */
+    private fun showAbout() {
+        val msg = StringBuilder()
+            .append("版本 1.4 · 角色扮演小玩具\n\n")
+            .append("· 她是角色，不是真人：台词由你选的模型实时生成，偶尔抽风很正常。\n")
+            .append("· 聊天记录只存这台手机（files/chatlog.jsonl），「聊天记录」里能随时清空；")
+            .append("除了发给你选的大模型接口，不会上传到别处。\n")
+            .append("· 免 Key 通道是公开服务，别在里面发密码、身份证这类东西。\n")
+            .append("· 素材：参考图由豆包生成，3D 模型用开源 TripoSR 重建；来源与许可写在仓库 NOTICE 里。")
+            .toString()
+        AlertDialog.Builder(this)
+            .setTitle("关于")
+            .setMessage(msg)
+            .setPositiveButton("知道了", null)
+            .show()
     }
 
     private fun showLearner() {
@@ -668,6 +694,11 @@ class MainActivity : Activity() {
             isChecked = llm.keyless
             textSize = 13f
         }
+        val cbFallback = CheckBox(this).apply {
+            text = "主接口挂了自动换免 Key 接口"
+            isChecked = llm.autoFallback
+            textSize = 13f
+        }
         val etBase = EditText(this).apply {
             setText(llm.baseUrl)
             hint = "https://open.bigmodel.cn/api/paas/v4"
@@ -687,6 +718,7 @@ class MainActivity : Activity() {
             text = "想零门槛先用起来：点下面「用免 Key 的免费 AI」，不用注册任何账号。\n" +
                 "想更稳定：智谱 open.bigmodel.cn 注册后建 API Key，GLM-4-Flash 免费。\n" +
                 "也支持硅基流动、DeepSeek 等 OpenAI 兼容接口。\n" +
+                "主接口挂了会自动换免 Key 接口（内容会发给那个公开服务，介意就关掉上面那项）。\n" +
                 "Key 只存在本机，卸载即清除。"
             textSize = 11f
             setTextColor(0xFF8C8C8C.toInt())
@@ -722,6 +754,7 @@ class MainActivity : Activity() {
                 Thread {
                     val probe = LlmClient(this@MainActivity)
                     probe.enabled = true
+                    probe.autoFallback = false   // 测试就测你填的这条，别拿备用接口的成绩糊弄你
                     probe.baseUrl = base
                     probe.model = modelName
                     probe.apiKey = key
@@ -741,6 +774,7 @@ class MainActivity : Activity() {
             addView(cb)
             addView(cbSearch)
             addView(cbKeyless)
+            addView(cbFallback)
             addView(TextView(this@MainActivity).apply {
                 text = "接口地址"; textSize = 12f; setTextColor(0xFF8C6A75.toInt())
             })
@@ -769,6 +803,7 @@ class MainActivity : Activity() {
                 llm.enabled = cb.isChecked
                 llm.searchEnabled = cbSearch.isChecked
                 llm.keyless = cbKeyless.isChecked
+                llm.autoFallback = cbFallback.isChecked
                 updateBadges()
                 panelText?.text = learnPanelText()
                 Toast.makeText(this, saveMessage(), Toast.LENGTH_LONG).show()
