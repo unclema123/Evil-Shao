@@ -79,7 +79,7 @@ class LlmClient(context: Context) {
         val m = model.trim()
         if (base.isEmpty() || m.isEmpty()) return null
         if (!keyless && apiKey.isBlank()) return null
-        return LlmProviders.P("当前设置", base, m, apiKey, keyless)
+        return LlmProviders.P("当前设置", base, m, apiKey, keyless, LlmProviders.needsNoThinking(base, m))
     }
 
     /** 这一轮要依次试的接口；冷却中的排最后，但全冷却时仍然硬试，不能整机哑掉 */
@@ -177,6 +177,7 @@ class LlmClient(context: Context) {
         frequencyPenalty: Double,
         presencePenalty: Double
     ): String? {
+        android.util.Log.d("EvilShao", "请求接口：${p.label} · ${p.model}")
         var conn: HttpURLConnection? = null
         return try {
             conn = open(p, "/chat/completions", readTimeoutMs)
@@ -186,6 +187,7 @@ class LlmClient(context: Context) {
                 .put("temperature", temperature)
                 .put("max_tokens", maxTokens)
                 .put("stream", false)
+                .also { if (p.noThinking) it.put("enable_thinking", false) }
                 .also { if (frequencyPenalty > 0) it.put("frequency_penalty", frequencyPenalty) }
                 .also { if (presencePenalty > 0) it.put("presence_penalty", presencePenalty) }
                 .toString()
@@ -289,6 +291,7 @@ class LlmClient(context: Context) {
         presencePenalty: Double,
         onDelta: (String) -> Unit
     ): Boolean {
+        android.util.Log.d("EvilShao", "请求接口：${p.label} · ${p.model}")
         var conn: HttpURLConnection? = null
         return try {
             conn = open(p, "/chat/completions", readTimeoutMs)
@@ -298,6 +301,7 @@ class LlmClient(context: Context) {
                 .put("temperature", temperature)
                 .put("max_tokens", maxTokens)
                 .put("stream", true)
+                .also { if (p.noThinking) it.put("enable_thinking", false) }
                 .also { if (frequencyPenalty > 0) it.put("frequency_penalty", frequencyPenalty) }
                 .also { if (presencePenalty > 0) it.put("presence_penalty", presencePenalty) }
                 .toString()

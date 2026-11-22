@@ -698,7 +698,7 @@ class MainActivity : Activity() {
      */
     private fun showAbout() {
         val msg = StringBuilder()
-            .append("版本 1.9 · 角色扮演小玩具\n\n")
+            .append("版本 1.10 · 角色扮演小玩具\n\n")
             .append("· 她是角色，不是真人：台词由你选的模型实时生成，偶尔抽风很正常。\n")
             .append("· 聊天记录只存这台手机（files/chatlog.jsonl），「聊天记录」里能随时清空；")
             .append("除了发给你选的大模型接口，不会上传到别处。\n")
@@ -800,7 +800,7 @@ class MainActivity : Activity() {
         val tip = TextView(this).apply {
             text = "想零门槛先用起来：点下面「用免 Key 的免费 AI」，不用注册任何账号。\n" +
                 "想更稳定：智谱 open.bigmodel.cn 注册后建 API Key，GLM-4-Flash 免费。\n" +
-                "也支持硅基流动、DeepSeek 等 OpenAI 兼容接口。\n" +
+                "也支持硅基流动、DeepSeek、百炼（阿里云）等 OpenAI 兼容接口；点「用百炼」会自动填好地址和模型。\n" +
                 "主接口挂了会自动换免 Key 接口（内容会发给那个公开服务，介意就关掉上面那项）。\n" +
                 "Key 只存在本机，卸载即清除。"
             textSize = 11f
@@ -820,6 +820,16 @@ class MainActivity : Activity() {
                 cb.isChecked = true
                 cbSearch.isChecked = true
                 result.text = "已填好免 Key 接口，点「保存」立刻生效"
+            }
+        }
+        val baiLianBtn = Button(this).apply {
+            text = "用百炼（DeepSeek）"
+            setOnClickListener {
+                etBase.setText(LlmProviders.ALIYUN_BASE)
+                etModel.setText(LlmProviders.ALIYUN_MODEL)
+                cbKeyless.isChecked = false
+                cb.isChecked = true
+                result.text = "已填好百炼的地址和模型，把百炼的 Key 粘到下面，再点「保存」"
             }
         }
         val probeBtn = Button(this).apply {
@@ -871,6 +881,7 @@ class MainActivity : Activity() {
             })
             addView(etKey)
             addView(tip)
+            addView(baiLianBtn)
             addView(testBtn)
             addView(result)
         }
