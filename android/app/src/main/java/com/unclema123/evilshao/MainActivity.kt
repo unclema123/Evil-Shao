@@ -2,11 +2,14 @@ package com.unclema123.evilshao
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.graphics.Color
+import android.graphics.Rect
 import android.opengl.GLSurfaceView
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -14,6 +17,7 @@ import android.provider.Settings
 import android.text.InputType
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowInsets
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
@@ -45,6 +49,7 @@ class MainActivity : Activity() {
     private lateinit var gl: GLSurfaceView
     private lateinit var bubble: TextView
     private lateinit var input: EditText
+    private lateinit var inputBar: View
     private lateinit var titleView: TextView
     private lateinit var menuPanel: LinearLayout
     private lateinit var scrim: View
@@ -117,12 +122,23 @@ class MainActivity : Activity() {
 
         bubble = findViewById(R.id.bubble)
         input = findViewById(R.id.input)
+        inputBar = findViewById(R.id.inputBar)
         noIme = getSharedPreferences("input", MODE_PRIVATE).getBoolean("noIme", false)
         titleView = findViewById(R.id.title)
         menuPanel = findViewById(R.id.menuPanel)
         scrim = findViewById(R.id.scrim)
         val menuBtn = findViewById<TextView>(R.id.menu)
         val send = findViewById<Button>(R.id.send)
+
+        // 长按「说」= 把剪贴板里的整句中文直接发出去。
+        // 模拟器上拼音候选条浮在屏幕底部、跟输入框抢地方，这条路径能绕开它。
+        send.setOnLongClickListener {
+            pasteAndSend()
+            true
+        }
+
+        // 软键盘弹出来、收回去、或者窗口因为别的原因变高变矮，都重新算一次输入框位置
+        window.decorView.viewTreeObserver.addOnGlobalLayoutListener { syncInputBarLift() }
 
         titleView.text = getString(R.string.app_name)
         titleView.setOnClickListener { showNameSettings(firstRun = false) }
@@ -143,9 +159,18 @@ class MainActivity : Activity() {
         // 会在屏幕最底下另开一条合成窗口显示拼音，看着就像字母跑到输入框外面去了。
         // 组词和候选留在键盘里，页面上就不会多那么一条。
         input.setOnFocusChangeListener { _, hasFocus ->
-            if (hasFocus) input.postDelayed({ showKeyboard() }, 120)
+            if (hasFocus) {
+                input.postDelayed({ showKeyboard() }, 120)
+                // 等输入法自己决定展不展开，再决定要不要把输入框抬起来
+                ui.postDelayed({ syncInputBarLift() }, 320)
+            } else {
+                ui.postDelayed({ syncInputBarLift() }, 80)
+            }
         }
-        input.setOnClickListener { showKeyboard() }
+        input.setOnClickListener {
+            showKeyboard()
+            ui.postDelayed({ syncInputBarLift() }, 320)
+        }
         input.showSoftInputOnFocus = !noIme
         menuBtn.setOnClickListener { toggleMenu() }
         scrim.setOnClickListener { closeMenu() }
@@ -272,23 +297,25 @@ class MainActivity : Activity() {
             val now = System.currentTimeMillis()
             if (composing || now - pinyinWarnAt > 2500) {
                 pinyinWarnAt = now
-                Toast.makeText(this, "拼音还没选成字，再点一次就直接发", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "拼音还没选成字：先在候选条里选字；急的话长按「说」粘贴发送", Toast.LENGTH_SHORT).show()
                 return
             }
         }
 
         if (raw.isEmpty()) return
+        val keepTyping = input.hasFocus() && !noIme
         input.text.clear()
         chatLog.append("我", raw)
         style.observe(raw)
         style.save()
         say("……")
 
-        // 收键盘的同时要放开焦点。只收键盘不放焦点的话，
-        // 气泡一出现、布局一变，输入法会自己弹回来，还会切回默认语言——
-        // 就是「回答完自动切换输入法」的来源。
-        input.clearFocus()
-        ui.postDelayed({ hideKeyboard() }, 80)
+        // 发完别急着收键盘：收掉的话下一条又得点一下输入框、输入法还要重新绑一次。
+        // 键盘会自己弹回来是因为「收键盘又没放开焦点」，现在干脆一直开着。
+        if (!keepTyping) {
+            input.clearFocus()
+            ui.postDelayed({ hideKeyboard() }, 80)
+        }
 
         if (llm.isConfigured()) {
             ui.postDelayed({ brain.ask(raw) }, 260)
@@ -296,6 +323,62 @@ class MainActivity : Activity() {
             // 没配大模型时也走编排层，保证「点一下就有回应」的体感不变
             ui.postDelayed({ brain.ask(raw) }, 520)
         }
+    }
+
+    /**
+     * 把输入框抬起来一点。
+     *
+     * 雷电这类「接物理键盘的模拟器」不会把软键盘展开（高度 0），
+     * 只在屏幕最底下留一条候选条；那条正好压在输入框和「说」上，
+     * 所以只要输入框有焦点、而系统又没报出软键盘高度，就把整条往上挪。
+     *
+     * 真机上软键盘会展开，窗口本身已经被 resize 顶上去，这里就不动。
+     */
+    private fun syncInputBarLift() {
+        val focused = input.hasFocus()
+        val imePx = keyboardInsetPx()
+        val shouldLift = focused && imePx < dp(80)
+        val target = if (shouldLift) -dp(112).toFloat() else 0f
+        if (abs(inputBar.translationY - target) > 1f) {
+            inputBar.animate().translationY(target).setDuration(150).start()
+        }
+    }
+
+    /** 软键盘实际占的高度；API 30 之后直接问 WindowInsets，之前只能靠可见区域推算 */
+    private fun keyboardInsetPx(): Int {
+        val root = window.decorView
+        if (Build.VERSION.SDK_INT >= 30) {
+            return root.rootWindowInsets?.getInsets(WindowInsets.Type.ime())?.bottom ?: 0
+        }
+        val r = Rect()
+        root.getWindowVisibleDisplayFrame(r)
+        return (root.height - r.bottom).coerceAtLeast(0)
+    }
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    /**
+     * 长按「说」：把剪贴板里的整句中文直接发出去，省得在模拟器那条候选条上抠字。
+     * 电脑上把话打好复制，模拟器和主机剪贴板是通的。
+     */
+    private fun pasteAndSend() {
+        val cm = getSystemService(ClipboardManager::class.java)
+        val clip = cm?.primaryClip
+        val text = if (clip != null && clip.itemCount > 0) {
+            clip.getItemAt(0).coerceToText(this)?.toString()?.trim().orEmpty()
+        } else {
+            ""
+        }
+        if (text.isEmpty()) {
+            Toast.makeText(this, "剪贴板是空的：先在别处复制一句中文", Toast.LENGTH_SHORT).show()
+            return
+        }
+        input.setText(text)
+        input.setSelection(text.length)
+        debugAsk = true          // 这是粘进来的完整句子，别被「拼音没选字」拦
+        submit()
+        debugAsk = false
+        Toast.makeText(this, "已从剪贴板发送", Toast.LENGTH_SHORT).show()
     }
 
     /** 纯小写字母（拼音不会带空格和符号；带汉字就一定不是没选字） */
@@ -615,7 +698,7 @@ class MainActivity : Activity() {
      */
     private fun showAbout() {
         val msg = StringBuilder()
-            .append("版本 1.4 · 角色扮演小玩具\n\n")
+            .append("版本 1.5 · 角色扮演小玩具\n\n")
             .append("· 她是角色，不是真人：台词由你选的模型实时生成，偶尔抽风很正常。\n")
             .append("· 聊天记录只存这台手机（files/chatlog.jsonl），「聊天记录」里能随时清空；")
             .append("除了发给你选的大模型接口，不会上传到别处。\n")
