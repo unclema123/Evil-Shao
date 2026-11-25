@@ -155,6 +155,11 @@
             android:text="@string/menu_self" />
 
         <TextView
+            android:id="@+id/item_character"
+            style="@style/MenuRow"
+            android:text="@string/menu_character" />
+
+        <TextView
             android:id="@+id/item_name"
             style="@style/MenuRow"
             android:text="@string/menu_name" />

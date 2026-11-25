@@ -22,6 +22,8 @@ class ChatBrain(
     private val web: WebSearch,
     private val knowledge: Knowledge,
     private val quotes: Quotes,
+    /** 当前角色和角色仓库：换人之后下一句立刻用新角色 */
+    private val chars: CharacterStore,
     private val style: StyleProfile,
     private val chatLog: ChatLog,
     /** 本人模式攒的问答对；没开就是空壳 */
@@ -194,33 +196,27 @@ class ChatBrain(
     /** 人设直答 */
     private fun persona(gen: Int, text: String, styleHint: String, question: Boolean): Boolean {
         val thin = llm.keyless
-        // 上下文信号：他是不是在夸别的女生；她现在高不高兴。
-        // 阴阳的场合不叠加「朕」——两种风格撞一起会四不像。
-        val recentTexts = try {
-            chatLog.recent(8).map { it.message }
-        } catch (e: Exception) {
-            emptyList<String>()
-        }
+        // 上下文信号：只有「毒舌」角色才在夸别人时阴阳，别的角色提示词里不启用
         val praised = PersonaSignals.praiseOfOtherWoman(text)
-        val happy = praised == null && PersonaSignals.isHappy(text, recentTexts)
-        if (praised != null || happy) log("情境：夸别人=[$praised] 高兴=$happy")
+        if (praised != null) log("情境：夸别人=[$praised]")
+        val ch = chars.active()
         val selfExamples = try {
-            self?.examples(text, 4)?.map { p ->
+            self?.examples(text, 4, ch.id)?.map { p ->
                 // 带上下文的例子才有用：只说「她会这么说」，模型不知道在接什么话
-                if (p.q.isBlank()) "她说过「${p.a}」" else "对方说「${p.q}」，她回「${p.a}」"
+                if (p.q.isBlank()) "对方说过「${p.a}」" else "对方说「${p.q}」，角色回「${p.a}」"
             } ?: emptyList()
         } catch (e: Exception) {
             emptyList()
         }
         if (selfExamples.isNotEmpty()) log("本人例子 ${selfExamples.size} 句：${selfExamples.first()}")
         val sys = Persona.systemPrompt(
+            ch,
             quotes,
             styleHint,
             // 只点最近 3 句。列 6 句以上，模型为了「不重复」会开始胡说八道
             ReplyGuard.bannedBlock(recentList(), 3),
             praisedWoman = praised,
-            happy = happy,
-            // 本人模式：她真在类似情境下说过的话，比任何规则都准
+            // 本人模式：对方真在类似情境下说过的话，比任何规则都准
             selfExamples = selfExamples
         )
         val raw = llm.chatStream(
@@ -255,15 +251,16 @@ class ChatBrain(
      */
     private fun quip(gen: Int, text: String) {
         if (stale(gen)) return
-        // 纯离线也要认得「夸别的女生」：不然只会回一句牛头不对马嘴的语录
+        val ch = chars.active()
+        // 纯离线也要认得「夸别的女生」：但只有毒舌角色才阴阳
         val praised = PersonaSignals.praiseOfOtherWoman(text)
-        if (praised != null) {
+        if (praised != null && ch.tagline.contains("毒舌")) {
             log("离线阴阳：$praised")
             deliver(gen, style.adapt(pickSarcastic()), Source.LOCAL, ignoreEcho = true)
             return
         }
         val mine = try {
-            self?.best(text)
+            self?.best(text, ch.id)
         } catch (e: Exception) {
             null
         }

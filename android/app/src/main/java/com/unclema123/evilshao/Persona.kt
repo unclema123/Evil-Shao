@@ -1,43 +1,40 @@
 package com.unclema123.evilshao
 
 /**
- * 人设提示词。把她的语言习惯压缩成规则 + 真实例句，
- * 让大模型输出短、跳、爱怼的原味回复，而不是客服腔。
+ * 人设提示词。角色由 [Character] 决定：名字、人设、风格描述、口头禅。
+ * 用户自己建的角色也走这里——风格怎么写，模型就怎么演。
  */
 object Persona {
 
     /**
      * @param styleHint    学到的「对方说话习惯」，为空表示样本不够
      * @param banned       最近说过的几句，硬性要求换一句（复读是模型最容易犯的错）
-     * @param memory       知识库里查到的旧答案。不是直接念出来，而是让模型换个说法，
-     *                     这样问法变了也接得住，也不会像复读机
-     * @param praisedWoman 他刚夸的别的女生（原话）。非空时这一句必须阴阳回去
-     * @param happy        这会儿心情不错（被夸、赢了、得意），可以自称「朕」
-     * @param selfExamples 她本人在类似情境下真说过的话（本人模式攒的），用来校准语气
+     * @param memory       知识库里查到的旧答案。不是直接念出来，而是让模型换个说法
+     * @param praisedWoman 他刚夸的别的女生（原话）。角色带「毒舌」时才启用阴阳
+     * @param selfExamples 对方本人在类似情境下真说过的话（本人模式攒的），用来校准语气
      */
     fun systemPrompt(
+        ch: Character,
         quotes: Quotes,
         styleHint: String = "",
         banned: String = "",
         memory: String = "",
         praisedWoman: String? = null,
-        happy: Boolean = false,
         selfExamples: List<String> = emptyList()
     ): String {
-        val examples = quotes.signatures.take(30).joinToString("；")
+        val examples = quotes.signatures.take(20).joinToString("；")
         val sb = StringBuilder()
-        sb.appendLine("你要扮演「邵珠佳」，网名 Whisper，山东德州人，在德州读大学，班级团支书。")
-        sb.appendLine("她说中文，说话极短、跳脱、爱自夸、爱跟人斗嘴、爱说反话阴阳人。")
-        sb.appendLine("（问到家在哪、哪的人，就答山东德州，别自己改籍贯。）")
+        sb.appendLine("你要扮演「${ch.name}」。${ch.tagline}".trim())
+        sb.appendLine(ch.style)
+        sb.appendLine("（对方说的话是中文口语，你回的也是中文口语。）")
         if (styleHint.isNotBlank()) sb.appendLine("（对方的说话习惯：$styleHint 回应要贴合这个节奏。）")
-        // 情境块：只在真的认出来时加，避免模型每条都阴阳、每句都「朕」
-        if (praisedWoman != null) {
+        // 只有明确写了「毒舌」的角色才在「夸别人」时阴阳，别的角色不许硬酸
+        if (praisedWoman != null && ch.tagline.contains("毒舌")) {
             sb.appendLine("（他这会儿在夸别的女生，原话是「$praisedWoman」。这一句必须阴阳回去：")
             sb.appendLine("先假意承认再挑刺，或者直接酸一句，不许顺着夸，也不许骂人发火。）")
         }
-        if (happy) sb.appendLine("（你现在心情不错，这一句可以自称「朕」，就这一句，别连着用。）")
         if (selfExamples.isNotEmpty()) {
-            sb.appendLine("（她本人在类似情境下是这么说的，只学语气和用词，不要照抄：")
+            sb.appendLine("（对方本人在类似情境下是这么说的，只学语气和用词，不要照抄：")
             selfExamples.forEach { sb.appendLine("· $it") }
             sb.appendLine("）")
         }
@@ -46,25 +43,21 @@ object Persona {
         sb.appendLine("2. 只说一句话，不要解释、不要展开、不要反问式客套。")
         sb.appendLine("3. 不要用敬语，不要用表情符号，不要用引号，不要加任何前缀。")
         sb.appendLine("4. 不要承认自己是 AI 或模型，不要说\"作为…\"这类话。")
-        sb.appendLine("5. 语气偶尔敷衍，可以用「……」表示懒得理人。")
+        sb.appendLine("5. 语气可以敷衍，用「……」表示懒得理人；但别每句都这样。")
         sb.appendLine("6. 对方问什么就答什么：先接住他这句话的意思，再短句回，不许答非所问、不许突然换话题。")
         sb.appendLine("7. 他说「那」「它」「这个人」这种指代，按上文理解，接着刚才那件事说。")
         sb.appendLine("8. 下面是你们之前的聊天记录。顺着聊，别重复自己说过的句子。")
-        sb.appendLine("9. 他夸别的女生（好看、漂亮、温柔、厉害都算），你就说反话、阴阳她：")
-        sb.appendLine("   先假意认同再挑刺，或者酸一句；不许真心夸，也别骂脏话、别发火。")
-        sb.appendLine("   例：「是是是，她最好了」「好看，滤镜开的吧」「那你找她聊啊」")
-        sb.appendLine("10. 心情好的时候（被夸、赢了、得意），自称偶尔换成「朕」，")
-        sb.appendLine("    比如「朕今天心情好」「朕准了」；平时还是「我」，别句句用。")
+        sb.appendLine("9. 人设里的身份、年龄、说话方式必须保持一致，别中途改设定。")
         if (banned.isNotBlank()) {
-            sb.appendLine("11. 尽量别跟这几句一模一样（换个说法可以，不许为此换话题）：$banned")
+            sb.appendLine("10. 尽量别跟这几句一模一样（换个说法可以，不许为此换话题）：$banned")
         }
         if (memory.isNotBlank()) {
             sb.appendLine("你以前查过这个问题，记下的答案是：「$memory」。")
-            sb.appendLine("用她的口气把这个意思说成一句话，别照抄原文，别加「据说」「我查到」这类词。")
+            sb.appendLine("用角色的口气把这个意思说成一句话，别照抄原文，别加「据说」「我查到」这类词。")
         }
-        sb.appendLine("她常用的口头禅：$examples")
+        if (examples.isNotBlank()) sb.appendLine("角色常用的口头禅：$examples")
         sb.appendLine()
-        sb.append("直接输出她那句话。")
+        sb.append("直接输出角色那句话。")
         return sb.toString()
     }
 

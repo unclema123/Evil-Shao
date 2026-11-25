@@ -1,4 +1,4 @@
-﻿package com.unclema123.evilshao
+package com.unclema123.evilshao
 
 import android.app.Activity
 import android.app.AlertDialog
@@ -55,6 +55,7 @@ class MainActivity : Activity() {
     private lateinit var scrim: View
     private lateinit var renderer: GlbRenderer
     private lateinit var quotes: Quotes
+    private lateinit var chars: CharacterStore
     private lateinit var chatLog: ChatLog
     private lateinit var learner: Learner
     private lateinit var dreamer: Dreamer
@@ -84,7 +85,9 @@ class MainActivity : Activity() {
         knowledge = Knowledge(this)
         style = StyleProfile(this)
         style.load()
-        quotes = Quotes(this)
+        quotes = Quotes()
+        chars = CharacterStore(this)
+        quotes.apply(chars.active())
         chatLog = ChatLog(this)
         learner = Learner(this)
         learner.load()
@@ -106,6 +109,7 @@ class MainActivity : Activity() {
             web = web,
             knowledge = knowledge,
             quotes = quotes,
+            chars = chars,
             style = style,
             chatLog = chatLog,
             self = selfCorpus,
@@ -194,7 +198,12 @@ class MainActivity : Activity() {
             closeMenu()
             toggleSelfMode()
         }
+        findViewById<TextView>(R.id.item_character).setOnClickListener {
+            closeMenu()
+            showCharacters()
+        }
         updateSelfLabel()
+        updateCharacterLabel()
         findViewById<TextView>(R.id.item_name).setOnClickListener {
             closeMenu()
             showNameSettings(firstRun = false)
@@ -323,7 +332,7 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 ""
             }
-            if (selfCorpus.add(prev, raw)) panelText?.text = learnPanelText()
+            if (selfCorpus.add(prev, raw, chars.active().id)) panelText?.text = learnPanelText()
         }
         val keepTyping = input.hasFocus() && !noIme
         input.text.clear()
@@ -539,14 +548,17 @@ class MainActivity : Activity() {
     private fun learnPanelText(): String {
         val sb = StringBuilder(learner.report())
         sb.append("\n\n── 人物风格 ──\n")
-        sb.append("短句、爱怼、爱自夸；被夸会得意，心情好时自称「朕」。\n")
-        sb.append("你夸别的女生，她会说反话阴阳回去。")
+        val ch = chars.active()
+        sb.append(ch.name).append(" · ").append(ch.tagline).append("\n")
+        sb.append(ch.style.take(80))
+        sb.append("\n口头禅 ").append(ch.lines.size).append(" 句")
+        if (ch.builtin) sb.append("（内置）") else sb.append("（你建的）")
         sb.append("\n\n── 你怎么说话（本地学的）──\n")
         sb.append(style.summary())
         sb.append("\n\n── 本人模式 ──\n")
         if (selfMode) {
-            sb.append("已打开：她打的每句话都会存下来（带上一句当上下文），已学 ")
-                .append(selfCorpus.size()).append(" 句。")
+            sb.append("已打开：").append(ch.name).append(" 打的每句话都会存下来（带上一句当上下文），已学 ")
+                .append(selfCorpus.size(ch.id)).append(" 句。")
         } else {
             sb.append("未打开：菜单 →「本人模式」，她正常聊天就行，不用答题。")
         }
@@ -727,8 +739,9 @@ class MainActivity : Activity() {
      */
     private fun showAbout() {
         val msg = StringBuilder()
-            .append("版本 1.11 · 角色扮演小玩具\n\n")
-            .append("· 她是角色，不是真人：台词由你选的模型实时生成，偶尔抽风很正常。\n")
+            .append("版本 2.0 · 温情陪护 Warm Companion\n\n")
+            .append("· 内置 4 个人物，也可以自己新建：菜单 →「人物」。人设和风格由你写，原样进提示词。\n")
+            .append("· 每个人物是角色，不是真人：台词由你选的模型实时生成，偶尔抽风很正常。\n")
             .append("· 聊天记录只存这台手机（files/chatlog.jsonl），「聊天记录」里能随时清空；")
             .append("除了发给你选的大模型接口，不会上传到别处。\n")
             .append("· 免 Key 通道是公开服务，别在里面发密码、身份证这类东西。\n")
@@ -798,6 +811,136 @@ class MainActivity : Activity() {
      * 不做问卷、不弹评分——她正常聊，她打的每句话连同上一句一起存成语料，
      * 在线时挑最像的几句塞进提示词，离线时直接找她说过的那句。
      */
+    private fun updateCharacterLabel() {
+        findViewById<TextView>(R.id.item_character).text = "人物 · ${chars.active().name}"
+    }
+
+    /** 换角色：语料、提示词、面板立刻跟着换，并让对方先听到这个角色的第一句 */
+    private fun applyCharacter(c: Character, announce: Boolean) {
+        quotes.apply(c)
+        updateCharacterLabel()
+        panelText?.text = learnPanelText()
+        if (announce && c.greeting.isNotBlank()) {
+            bubble.visibility = View.GONE
+            ui.postDelayed({ say(c.greeting) }, 220)
+        }
+    }
+
+    private fun showCharacters() {
+        val list = chars.all()
+        val names = list.map {
+            if (it.builtin) "${it.name} · ${it.tagline}" else "${it.name} · ${it.tagline}（我的）"
+        }.toTypedArray()
+        val checked = list.indexOfFirst { it.id == chars.active().id }.coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("人物")
+            .setSingleChoiceItems(names, checked) { d, which ->
+                d.dismiss()
+                val c = list[which]
+                if (c.id != chars.active().id) {
+                    chars.select(c.id)
+                    applyCharacter(c, announce = true)
+                }
+            }
+            .setPositiveButton("新建") { _, _ -> editCharacter(null) }
+            .setNeutralButton("编辑/删除") { _, _ -> pickForEditCharacter() }
+            .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    private fun pickForEditCharacter() {
+        val mine = chars.users
+        if (mine.isEmpty()) {
+            Toast.makeText(this, "内置人物不能改。点「新建」建一个自己的。", Toast.LENGTH_LONG).show()
+            return
+        }
+        val names = mine.map { it.name }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("我的人物")
+            .setItems(names) { _, i ->
+                val c = mine[i]
+                AlertDialog.Builder(this)
+                    .setTitle(c.name)
+                    .setItems(arrayOf("编辑", "删除")) { _, k ->
+                        if (k == 0) editCharacter(c) else confirmDeleteCharacter(c)
+                    }
+                    .show()
+            }
+            .show()
+    }
+
+    private fun confirmDeleteCharacter(c: Character) {
+        AlertDialog.Builder(this)
+            .setTitle("删除「${c.name}」？")
+            .setMessage("人设和口头禅会一起删掉；本人模式学到的句子还留着。")
+            .setPositiveButton("删除") { _, _ ->
+                chars.deleteUser(c.id)
+                applyCharacter(chars.active(), announce = true)
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    /**
+     * 新建 / 编辑人物。风格描述原样进提示词——「人物风格由用户决定」就靠这一栏。
+     */
+    private fun editCharacter(ch: Character?) {
+        val pad = (18 * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, 0)
+        }
+        fun addField(hint: String, value: String, lines: Int): EditText {
+            val e = EditText(this)
+            e.hint = hint
+            e.setText(value)
+            e.textSize = 14f
+            e.setSingleLine(lines == 1)
+            if (lines > 1) {
+                e.minLines = lines
+                e.maxLines = lines + 4
+                e.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            }
+            box.addView(e)
+            return e
+        }
+        val name = addField("名字，例：林晚", ch?.name ?: "", 1)
+        val tag = addField("一句话人设，例：温柔学姐 / 四年级小学生，幽默", ch?.tagline ?: "", 1)
+        val style = addField("风格：这个角色怎么说话（原样进提示词）", ch?.style ?: "", 3)
+        val lines = addField("口头禅，一行一句（至少 5 句，建议 15 句以上）", ch?.lines?.joinToString("\n") ?: "", 4)
+        val greet = addField("见面第一句（可空）", ch?.greeting ?: "", 1)
+
+        AlertDialog.Builder(this)
+            .setTitle(if (ch == null) "新建人物" else "编辑人物")
+            .setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("保存") { _, _ ->
+                val n = name.text.toString().trim()
+                val l = lines.text.toString().split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+                if (n.isEmpty()) {
+                    Toast.makeText(this, "名字不能空", Toast.LENGTH_SHORT).show()
+                } else if (l.size < 3) {
+                    Toast.makeText(this, "口头禅至少写 3 句，不然离线没得说", Toast.LENGTH_LONG).show()
+                } else {
+                    val c = Character(
+                        id = ch?.id ?: ("u" + System.currentTimeMillis()),
+                        name = n,
+                        tagline = tag.text.toString().trim(),
+                        style = style.text.toString().trim().ifBlank { "说话像一个普通朋友，短句，别客套。" },
+                        greeting = greet.text.toString().trim(),
+                        lines = l.take(300),
+                        rules = ch?.rules ?: emptyList(),
+                        builtin = false
+                    )
+                    chars.saveUser(c)
+                    chars.select(c.id)
+                    applyCharacter(c, announce = true)
+                    Toast.makeText(this, "已保存，现在的人物是「${c.name}」", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
     private fun toggleSelfMode() {
         if (selfMode) {
             selfMode = false
@@ -805,7 +948,7 @@ class MainActivity : Activity() {
                 .putBoolean("selfMode", false).apply()
             updateSelfLabel()
             panelText?.text = learnPanelText()
-            Toast.makeText(this, "本人模式：关（已学的 ${selfCorpus.size()} 句还在）", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "本人模式：关（已学的 ${selfCorpus.size(chars.active().id)} 句还在）", Toast.LENGTH_SHORT).show()
             return
         }
         AlertDialog.Builder(this)

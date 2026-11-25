@@ -1,109 +1,125 @@
-# PigNpc · 小猪邵珠佳（Kotlin 3D 版）
+# Warm Companion · 温情陪护
 
-一个 Kotlin + JavaFX 3D 的桌面互动小软件：屏幕上一只**真正立体的拟人化小猪**，
-拖拽可以旋转它、滚轮缩放、点它一下她会随口吐槽；你打字说话，她头顶浮出气泡回你。
+A small Android companion app: a real 3D pig on screen, four characters with
+different voices — and you can write your own character, in your own words.
 
-不是聊天记录窗口——主体是 3D 角色，对话只以气泡形式临时出现。
+中文说明在下面的「中文」一节；Android 安装包是
+[`android/app-debug.apk`](android/app-debug.apk)。
 
-> **Android 版在 [`android/`](android/) 目录**：用 OpenGL ES 2.0 真 3D 渲染，
-> 装 [`android/app-debug.apk`](android/app-debug.apk) 即可（雷电模拟器、手机都能装）。
-> 下面这一节讲的是桌面版。
+> Renamed from **Evil Shao / PigNpc**. The old persona packs are gone: 2.0
+> ships four fictional characters and a character editor instead.
 
-## 文件都在哪（全部在 E 盘）
+## English
 
-| 路径 | 内容 |
-|---|---|
-| `E:\EvilShao` | 本仓库：桌面版源码、`android/`、`web-2d/`、截图 |
-| `E:\EvilShao\android` | Android 工程（OpenGL ES 版） |
-| `E:\EvilShao\web-2d` | 最早的 2D 网页版（单文件 HTML） |
-| `E:\EvilShao\tools` | WiX 工具链（做桌面安装包用，未入库） |
-| `E:\Dev\android-sdk` | Android SDK（platform 35 / build-tools 35） |
-| `E:\Dev\gradle-home` | Gradle 缓存与发行版（`GRADLE_USER_HOME`） |
+### What it is
 
-环境变量已设为用户级持久生效：`ANDROID_HOME`、`ANDROID_SDK_ROOT`、`GRADLE_USER_HOME`。
+- **3D companion, not a chat window.** A low-poly pig (OpenGL ES 2.0) sits on
+  screen and talks in a speech bubble. Drag to rotate, pinch to zoom.
+- **Four built-in characters**, each with its own voice, lines and offline rules:
+  - 林晚 — gentle senior, listens first, suggests second
+  - 阿刺 — sharp-tongued friend, roasts you, then actually helps
+  - 陈默 — calm doctor, asks one question, gives one concrete step
+  - 豆豆 — a fourth-grader with impeccable kid logic and terrible jokes
+- **Make your own character.** Menu → 人物 → 新建. You write the name, a
+  one-line premise, a free-form style description (sent verbatim to the model),
+  the catchphrases, and the greeting. Style is entirely yours.
+- **Learning from real chat, not quizzes.** Turn on 本人模式: every message the
+  person types is stored locally as (previous line → their line). The app
+  retrieves the closest pairs and feeds them to the model as few-shot examples;
+  offline it answers with the line they actually said.
+- **Bring your own model.** Any OpenAI-compatible endpoint works: Aliyun 百炼
+  (preset button, DeepSeek), OpenAI, OpenRouter, a local llama.cpp server…
+  A keyless public fallback is also included, but it is slow and shared.
+- **Private by default.** Chat logs, learned weights and character data stay in
+  the app's private storage. Only the conversation you type is sent to the API
+  you configured.
 
-## 运行
+### Install
 
-### 方式一：直接跑打包好的程序
+1. Download [`android/app-debug.apk`](android/app-debug.apk).
+2. Allow install from unknown sources, install, open **Warm Companion**.
+3. Optional: Menu → AI, paste a base URL / model / API key (or tap the 百炼
+   preset), then chat.
 
-```
-dist/PigNpc/PigNpc.exe
-```
+Requires Android 8.0+ (API 26); developed against API 34/35.
 
-双击即可，**不需要装 Java**（jpackage 已经把运行时打进 `runtime/`）。
-
-> `dist/` 有 160MB，没有提交进仓库；克隆后需要按下面「构建」一节自己生成。
-> 想省事可以直接用「方式二」，只要 JDK 21 + Gradle，不用先打包。
-
-### 方式二：从源码运行
-
-```bash
-gradle run
-```
-
-需要 JDK 21 和 Gradle 8.11+。JavaFX 依赖由 Maven Central 提供，无需单独装 SDK。
-
-> 仓库里没有提交 gradle wrapper（本机网络无法下载 distribution），
-> 所以用本机已安装的 `gradle` 命令，而不是 `./gradlew`。
-
-## 构建
+### Build
 
 ```bash
-gradle installDist                 # 生成 build/install/PigNpc
-jpackage --type app-image \
-  --name PigNpc \
-  --input build/install/PigNpc/lib \
-  --main-jar PigNpc.jar \
-  --main-class com.unclema123.pignpc.LauncherKt \
-  --dest dist --app-version 1.0.0
+cd android
+gradle assembleDebug --offline   # JDK 21, Android SDK 35, Gradle 8.11
 ```
 
-## 语录
+No AndroidX, no third-party libraries: plain framework views plus a hand-written
+GLB renderer.
 
-`src/main/resources/quotes.txt` 是内置语料；程序运行后读写的是
-`%APPDATA%\PigNpc\quotes.txt`（首次运行不自动生成，点「语录」保存后才会写）。
+### Characters: how the style is wired
 
-也可以点界面右上角**「语录」**直接改，保存后立即生效。
+`android/app/src/main/assets/characters.json` holds the built-ins:
 
-格式：
-
-```
-[SIG]                                   # 口头禅，一行一条
-谁让我这么聪明
-笑死我了
-
-[RULE]                                  # 关键词,关键词 => 回复;;回复
-吃,饭,饿 => 刚才去拿了快递，然后买了饭;;因为下午的时候不饿[坏笑]
-
-[FALL]                                  # 兜底
-……
+```json
+{
+  "id": "dodo", "name": "豆豆", "tagline": "四年级小学生，幽默",
+  "style": "你是豆豆，小学四年级，10 岁……",
+  "greeting": "你也被作业抓来啦？",
+  "lines": ["因为我是小学生，所以我有理。", "..."],
+  "rules": [{"keys": ["作业", "考试"], "replies": ["你写完了吗？借我抄抄。"]}]
+}
 ```
 
-## 说话风格
+- `style` goes into the system prompt unchanged — that is the character.
+- `lines` are the catchphrases used for offline replies and as tone examples.
+- `rules` give keyword-triggered answers when no model is configured.
+- Characters created in the app are stored in `files/characters.json` (user
+  data, never in the APK).
 
-语料来自 2026-11-14 ~ 11-16 的真实聊天记录（对方在微信里显示为 Whisper）。
-核心特征是**自夸式幽默 + 小学生斗嘴**：
+### Versus the old version
 
-- 自夸：「谁让我这么聪明」「谢谢，我就是当代福尔摩斯」「我家没我得散」
-- 斗嘴：「反弹。」「你猜我是傻子吗？」「你！！！」
-- 惊讶：「我的天」「哎呀，我的妈呀」「我去」「窝趣」
-- 冷处理：单独一条「……」
-- 幻想：「建议推举我当德州市长」「比起德州市长，我更想取代特朗普」
+- Removed: all persona packs derived from a real person's chat logs.
+- Added: multi-character support, a character editor, per-character learned
+  lines, English product name.
+- Kept: 3D pig renderer, streaming replies, provider failover, web search,
+  local knowledge base.
 
-## 结构
+### Legacy
 
-```
-src/main/kotlin/com/unclema123/pignpc/
-├── Launcher.kt       启动入口（不继承 Application，避免 classpath 下的启动报错）
-├── MainApp.kt        场景、相机、灯光、交互、语录编辑对话框
-├── PigModel.kt       用 Sphere/Cylinder 拼的 3D 小猪 + 待机动画/眨眼
-├── SpeechBubble.kt   Canvas 画文字 → 快照成贴图 → 放进 3D 场景的气泡
-└── QuotesStore.kt    语录读写 + 关键词打分回复引擎
-```
+The Kotlin/JavaFX desktop demo (`src/`, `dist/`) and the early 2D web page
+(`web-2d/`) are archived and no longer maintained. They still reference the old
+pig demo and are kept only for history.
 
-## 已知限制
+## 中文
 
-- 只测过 Windows + JDK 21。JavaFX 的 `-win` 分类依赖意味着换平台需要改依赖分类。
-- 3D 是基本体拼的，没有外部模型文件，所以改比例只能改代码里的数值。
-- 控制台会有一条 `Unsupported JavaFX configuration: classes were loaded from 'unnamed module'`
-  警告，这是 classpath 方式加载 JavaFX 的正常提示，不影响功能。
+### 这是什么
+
+一个 Android 上的「温情陪护」小工具：屏幕上是一只真 3D 的小猪（OpenGL ES
+2.0 渲染，可拖动旋转、双指缩放），文字以气泡形式出现，不做成聊天记录窗口。
+
+- **内置 4 个人物**：林晚（温柔学姐）、阿刺（毒舌损友）、陈默（冷静医生）、
+  豆豆（四年级小学生，幽默）。每人有自己的口头禅和离线规则。
+- **自己建人物**：菜单 →「人物」→「新建」。名字、一句话人设、风格（原样进
+  提示词，你想让它怎么说话就怎么写）、口头禅、见面第一句，全由你定。
+- **本人模式**（自然学习）：打开后，这个人打的每句话都会连同上一条存进手机，
+  在线时作为例子塞进提示词，离线时按相似度直接用她说过的那句。不做问卷、
+  不打分。
+- **模型随便接**：兼容 OpenAI 接口的都能用（百炼/DeepSeek 有预设按钮），
+  也自带一个免 Key 的公开兜底通道。
+- **数据只在手机里**：聊天记录、学到的语料、自建人物都存在应用私有目录，
+  卸载即清除；只有你发的对话会发给你配置的模型接口。
+
+### 安装
+
+装 [`android/app-debug.apk`](android/app-debug.apk) 即可，需要 Android 8.0+。
+
+### 和以前比
+
+2.0 起改名 **Warm Companion / 温情陪护**，删掉了之前按真人聊天记录整理的
+全部语录包，换成 4 个虚构人物 + 人物编辑器；学习改成按角色分开的本人模式语料。
+
+### 旧版
+
+桌面版（`src/`、`dist/`）和最早的 2D 网页版（`web-2d/`）是历史存档，不再维护。
+
+---
+
+开发记录、每一轮改了什么，见 [`android/README.md`](android/README.md)。
+素材来源与许可见 [`NOTICE`](NOTICE)。

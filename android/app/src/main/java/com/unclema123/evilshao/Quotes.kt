@@ -1,16 +1,15 @@
 package com.unclema123.evilshao
 
-import android.content.Context
 import kotlin.random.Random
 
 /**
- * 语录与回复引擎。格式和桌面版一致：
+ * 语录与回复引擎。数据来自当前角色的口头禅和规则（见 [Character]）。
  *
- *   [SIG]  口头禅，一行一条
- *   [RULE] 关键词,关键词 => 回复;;回复
- *   [FALL] 兜底
+ *   signatures  口头禅，没命中关键词时随机说
+ *   rules       关键词 => 回复
+ *   fallback    兜底
  */
-class Quotes(context: Context) {
+class Quotes {
 
     class Rule(val keys: List<String>, val replies: List<String>)
 
@@ -29,33 +28,20 @@ class Quotes(context: Context) {
 
     private val recent = ArrayDeque<String>()
 
-    init {
-        context.assets.open("quotes.txt").bufferedReader(Charsets.UTF_8).useLines { lines ->
-            var section = ""
-            for (raw in lines) {
-                val line = raw.trim()
-                if (line.isEmpty() || line.startsWith("#")) continue
-                if (line.startsWith("[") && line.endsWith("]")) {
-                    section = line.uppercase()
-                    continue
-                }
-                when (section) {
-                    "[SIG]" -> signatures.add(line)
-                    "[FALL]" -> fallback.add(line)
-                    "[RULE]" -> {
-                        val arrow = line.indexOf("=>")
-                        if (arrow <= 0) continue
-                        val keys = line.substring(0, arrow).split(',', '，')
-                            .map { it.trim() }.filter { it.isNotEmpty() }
-                        val replies = line.substring(arrow + 2).split(";;")
-                            .map { it.trim() }.filter { it.isNotEmpty() }
-                        if (keys.isNotEmpty() && replies.isNotEmpty()) rules.add(Rule(keys, replies))
-                    }
-                }
-            }
-        }
+    /**
+     * 换角色：口头禅、规则、兜底全部换成这个人的。
+     * 学习权重和自造句不动——那些是「用户教出来的」，换人不该清零。
+     */
+    fun apply(ch: Character) {
+        signatures.clear()
+        rules.clear()
+        fallback.clear()
+        signatures.addAll(ch.lines)
+        rules.addAll(ch.rules)
+        fallback.addAll(ch.lines.takeLast(4))
         if (fallback.isEmpty()) fallback.add("……")
         if (signatures.isEmpty()) signatures.add("……")
+        synchronized(recent) { recent.clear() }
     }
 
     fun randomSignature(): String = pick(signatures + invented)

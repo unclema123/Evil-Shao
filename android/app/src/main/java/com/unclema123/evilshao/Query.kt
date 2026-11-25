@@ -1,4 +1,4 @@
-package com.unclema123.evilshao
+﻿package com.unclema123.evilshao
 
 /**
  * 把用户的一句话压成搜索词。
@@ -80,7 +80,7 @@ object Query {
     )
 
     /** 她的名字/网名，问到这些也不搜 */
-    private val SELF_NAME = Regex("邵珠佳|Whisper|小猪", RegexOption.IGNORE_CASE)
+    private val SELF_NAME = Regex("小猪", RegexOption.IGNORE_CASE)
 
     /** 问她自己的句式 */
     private val SELF_QUESTION = Regex(
