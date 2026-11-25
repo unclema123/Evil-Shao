@@ -46,6 +46,53 @@ class Quotes {
 
     fun randomSignature(): String = pick(signatures + invented)
 
+    /**
+     * 按输入从语录库里检索最贴的几句（给提示词当例句用）。
+     * 一句都沾不上就随机取，保证例句池不空。
+     */
+    fun nearest(input: String, n: Int): List<String> {
+        val pool = signatures + invented
+        if (pool.isEmpty()) return emptyList()
+        val scored = pool.map { it to score(input, it) }.sortedByDescending { it.second }
+        val hit = scored.take(n).filter { it.second > 0.0 }
+        val out = if (hit.isEmpty()) pool.shuffled().take(minOf(n, pool.size)) else hit.map { it.first }
+        return out.distinct()
+    }
+
+    /**
+     * 离线：从语录库里找一句最贴输入的话。
+     * 相似度不够就返回 null，让上层用兜底句——宁可不说话，也别答非所问。
+     */
+    fun replyFor(input: String, threshold: Double = 0.15): String? {
+        val pool = signatures + invented
+        var best: String? = null
+        var bestScore = 0.0
+        for (s in pool) {
+            val v = score(input, s)
+            if (v > bestScore) {
+                bestScore = v
+                best = s
+            }
+        }
+        return if (best != null && bestScore >= threshold) best else null
+    }
+
+    /** 输入和语录共享多少 2-gram，按语录长度归一化 */
+    private fun score(input: String, line: String): Double {
+        if (input.isBlank() || line.length < 2) return 0.0
+        val a = grams(input)
+        val b = grams(line)
+        if (a.isEmpty() || b.isEmpty()) return 0.0
+        val shared = b.count { it in a }
+        return shared.toDouble() / b.size
+    }
+
+    private fun grams(s: String): Set<String> {
+        val out = HashSet<String>()
+        for (i in 0 until s.length - 1) out.add(s.substring(i, i + 2))
+        return out
+    }
+
     fun reply(input: String): String {
         val text = input.trim()
         if (text.isEmpty()) return randomSignature()

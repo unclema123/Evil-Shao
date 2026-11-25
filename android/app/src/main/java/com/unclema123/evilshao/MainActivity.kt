@@ -547,12 +547,12 @@ class MainActivity : Activity() {
 
     private fun learnPanelText(): String {
         val sb = StringBuilder(learner.report())
-        sb.append("\n\n── 人物风格 ──\n")
+        sb.append("\n\n── 当前角色 ──\n")
         val ch = chars.active()
-        sb.append(ch.name).append(" · ").append(ch.tagline).append("\n")
-        sb.append(ch.style.take(80))
-        sb.append("\n口头禅 ").append(ch.lines.size).append(" 句")
-        if (ch.builtin) sb.append("（内置）") else sb.append("（你建的）")
+        sb.append(ch.name).append("｜性格：").append(ch.tagline).append("\n")
+        sb.append(ch.style.take(120))
+        sb.append("\n语录 ").append(ch.lines.size).append(" 句")
+        if (ch.builtin) sb.append("（内置）") else sb.append("（你拼的）")
         sb.append("\n\n── 你怎么说话（本地学的）──\n")
         sb.append(style.summary())
         sb.append("\n\n── 本人模式 ──\n")
@@ -739,8 +739,8 @@ class MainActivity : Activity() {
      */
     private fun showAbout() {
         val msg = StringBuilder()
-            .append("版本 2.0 · 温情陪护 Warm Companion\n\n")
-            .append("· 内置 4 个人物，也可以自己新建：菜单 →「人物」。人设和风格由你写，原样进提示词。\n")
+            .append("版本 2.1 · 温情陪护 Warm Companion\n\n")
+            .append("· 10 种性格，挑几个拼成一个角色：菜单 →「人物」→「新建」。用哪几种、补哪些话，都由你定。\n")
             .append("· 每个人物是角色，不是真人：台词由你选的模型实时生成，偶尔抽风很正常。\n")
             .append("· 聊天记录只存这台手机（files/chatlog.jsonl），「聊天记录」里能随时清空；")
             .append("除了发给你选的大模型接口，不会上传到别处。\n")
@@ -882,7 +882,8 @@ class MainActivity : Activity() {
     }
 
     /**
-     * 新建 / 编辑人物。风格描述原样进提示词——「人物风格由用户决定」就靠这一栏。
+     * 新建 / 编辑角色：不写身份，只挑性格。
+     * 选中的性格说明会拼成提示词，语录库取它们的并集；用户还能补几句自己的。
      */
     private fun editCharacter(ch: Character?) {
         val pad = (18 * resources.displayMetrics.density).toInt()
@@ -904,37 +905,52 @@ class MainActivity : Activity() {
             box.addView(e)
             return e
         }
-        val name = addField("名字，例：林晚", ch?.name ?: "", 1)
-        val tag = addField("一句话人设，例：温柔学姐 / 四年级小学生，幽默", ch?.tagline ?: "", 1)
-        val style = addField("风格：这个角色怎么说话（原样进提示词）", ch?.style ?: "", 3)
-        val lines = addField("口头禅，一行一句（至少 5 句，建议 15 句以上）", ch?.lines?.joinToString("\n") ?: "", 4)
+        val name = addField("名字（只用来显示，可空）", ch?.name ?: "", 1)
+
+        val title = TextView(this).apply {
+            text = "性格（可多选，至少一个）："
+            textSize = 13f
+            setPadding(0, pad / 2, 0, 4)
+        }
+        box.addView(title)
+        val boxes = ArrayList<Pair<CheckBox, Trait>>()
+        val chosen = ch?.traitIds ?: emptyList()
+        chars.traits().forEach { t ->
+            val cb = CheckBox(this).apply {
+                text = "${t.name} — ${t.style}"
+                textSize = 13f
+                isChecked = chosen.contains(t.id)
+            }
+            box.addView(cb)
+            boxes.add(cb to t)
+        }
+
+        val extraLines = addField("额外语录，一行一句（可空；会和性格自带的语录合在一起）", ch?.extraLines?.joinToString("\n") ?: "", 3)
+        val extraStyle = addField("补充说明（可空，原样进提示词）", ch?.extraStyle ?: "", 2)
         val greet = addField("见面第一句（可空）", ch?.greeting ?: "", 1)
 
         AlertDialog.Builder(this)
-            .setTitle(if (ch == null) "新建人物" else "编辑人物")
+            .setTitle(if (ch == null) "拼一个角色" else "编辑角色")
             .setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("保存") { _, _ ->
-                val n = name.text.toString().trim()
-                val l = lines.text.toString().split('\n').map { it.trim() }.filter { it.isNotEmpty() }
-                if (n.isEmpty()) {
-                    Toast.makeText(this, "名字不能空", Toast.LENGTH_SHORT).show()
-                } else if (l.size < 3) {
-                    Toast.makeText(this, "口头禅至少写 3 句，不然离线没得说", Toast.LENGTH_LONG).show()
+                val ids = boxes.filter { it.first.isChecked }.map { it.second.id }
+                val extra = extraLines.text.toString().split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+                if (ids.isEmpty() && extra.isEmpty()) {
+                    Toast.makeText(this, "至少选一个性格，或者自己写几句语录", Toast.LENGTH_LONG).show()
                 } else {
-                    val c = Character(
+                    val c = chars.compose(
                         id = ch?.id ?: ("u" + System.currentTimeMillis()),
-                        name = n,
-                        tagline = tag.text.toString().trim(),
-                        style = style.text.toString().trim().ifBlank { "说话像一个普通朋友，短句，别客套。" },
-                        greeting = greet.text.toString().trim(),
-                        lines = l.take(300),
-                        rules = ch?.rules ?: emptyList(),
+                        name = name.text.toString(),
+                        traitIds = ids,
+                        extraLines = extra,
+                        extraStyle = extraStyle.text.toString(),
+                        greeting = greet.text.toString(),
                         builtin = false
                     )
                     chars.saveUser(c)
                     chars.select(c.id)
                     applyCharacter(c, announce = true)
-                    Toast.makeText(this, "已保存，现在的人物是「${c.name}」", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "已保存：${c.name}（${c.tagline}）", Toast.LENGTH_SHORT).show()
                 }
             }
             .setNegativeButton("取消", null)

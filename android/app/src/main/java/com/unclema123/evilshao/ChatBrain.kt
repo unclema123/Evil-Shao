@@ -217,7 +217,8 @@ class ChatBrain(
             ReplyGuard.bannedBlock(recentList(), 3),
             praisedWoman = praised,
             // 本人模式：对方真在类似情境下说过的话，比任何规则都准
-            selfExamples = selfExamples
+            selfExamples = selfExamples,
+            focus = text
         )
         val raw = llm.chatStream(
             sys, text, history(),
@@ -252,9 +253,9 @@ class ChatBrain(
     private fun quip(gen: Int, text: String) {
         if (stale(gen)) return
         val ch = chars.active()
-        // 纯离线也要认得「夸别的女生」：但只有毒舌角色才阴阳
+        // 纯离线也要认得「夸别的女生」：但只有带「毒舌/阴阳」性格的角色才阴阳
         val praised = PersonaSignals.praiseOfOtherWoman(text)
-        if (praised != null && ch.tagline.contains("毒舌")) {
+        if (praised != null && (ch.traitIds.contains("dushe") || ch.traitIds.contains("yinyang"))) {
             log("离线阴阳：$praised")
             deliver(gen, style.adapt(pickSarcastic()), Source.LOCAL, ignoreEcho = true)
             return
@@ -276,6 +277,28 @@ class ChatBrain(
         }
         if (matched != null) {
             deliver(gen, style.adapt(matched), Source.LOCAL, ignoreEcho = true)
+            return
+        }
+        // 固定的话从语录库检索：找一句和她这句话沾边的，而不是随机抽
+        val retrieved = try {
+            quotes.replyFor(text)
+        } catch (e: Exception) {
+            null
+        }
+        if (retrieved != null) {
+            log("语录检索命中：$retrieved")
+            deliver(gen, style.adapt(retrieved), Source.LOCAL, ignoreEcho = true)
+            return
+        }
+        // 还是接不住：说一句这个角色自己的话（语录库），比通用兜底句更像「她」
+        val own = try {
+            quotes.randomSignature()
+        } catch (e: Exception) {
+            null
+        }
+        if (own != null && own != "……") {
+            log("语录兜底：$own")
+            deliver(gen, style.adapt(own), Source.LOCAL, ignoreEcho = true)
             return
         }
         val pool = if (Query.looksLikeQuestion(text)) OFFLINE_QUESTION else OFFLINE_CHAT

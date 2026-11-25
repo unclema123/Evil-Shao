@@ -1,4 +1,4 @@
-package com.unclema123.evilshao
+﻿package com.unclema123.evilshao
 
 /**
  * 人设提示词。角色由 [Character] 决定：名字、人设、风格描述、口头禅。
@@ -12,6 +12,7 @@ object Persona {
      * @param memory       知识库里查到的旧答案。不是直接念出来，而是让模型换个说法
      * @param praisedWoman 他刚夸的别的女生（原话）。角色带「毒舌」时才启用阴阳
      * @param selfExamples 对方本人在类似情境下真说过的话（本人模式攒的），用来校准语气
+     * @param focus        对方刚说的话。用来从语录库里检索最贴的例句，而不是固定拿前 20 句
      */
     fun systemPrompt(
         ch: Character,
@@ -20,9 +21,11 @@ object Persona {
         banned: String = "",
         memory: String = "",
         praisedWoman: String? = null,
-        selfExamples: List<String> = emptyList()
+        selfExamples: List<String> = emptyList(),
+        focus: String = ""
     ): String {
-        val examples = quotes.signatures.take(20).joinToString("；")
+        val picked = if (focus.isNotBlank()) quotes.nearest(focus, 16) else quotes.signatures.take(20)
+        val examples = picked.joinToString("；")
         val sb = StringBuilder()
         sb.appendLine("你要扮演「${ch.name}」。${ch.tagline}".trim())
         sb.appendLine(ch.style)
@@ -47,7 +50,7 @@ object Persona {
         sb.appendLine("6. 对方问什么就答什么：先接住他这句话的意思，再短句回，不许答非所问、不许突然换话题。")
         sb.appendLine("7. 他说「那」「它」「这个人」这种指代，按上文理解，接着刚才那件事说。")
         sb.appendLine("8. 下面是你们之前的聊天记录。顺着聊，别重复自己说过的句子。")
-        sb.appendLine("9. 人设里的身份、年龄、说话方式必须保持一致，别中途改设定。")
+        sb.appendLine("9. 性格必须前后一致，别中途换说话方式。")
         if (banned.isNotBlank()) {
             sb.appendLine("10. 尽量别跟这几句一模一样（换个说法可以，不许为此换话题）：$banned")
         }

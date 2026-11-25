@@ -15,14 +15,16 @@ different voices — and you can write your own character, in your own words.
 
 - **3D companion, not a chat window.** A low-poly pig (OpenGL ES 2.0) sits on
   screen and talks in a speech bubble. Drag to rotate, pinch to zoom.
-- **Four built-in characters**, each with its own voice, lines and offline rules:
-  - 林晚 — gentle senior, listens first, suggests second
-  - 阿刺 — sharp-tongued friend, roasts you, then actually helps
-  - 陈默 — calm doctor, asks one question, gives one concrete step
-  - 豆豆 — a fourth-grader with impeccable kid logic and terrible jokes
-- **Make your own character.** Menu → 人物 → 新建. You write the name, a
-  one-line premise, a free-form style description (sent verbatim to the model),
-  the catchphrases, and the greeting. Style is entirely yours.
+- **Ten personality traits, not preset roles.** 温柔 / 幽默 / 毒舌 / 高冷 / 粘人 /
+  理性 / 直率 / 傲娇 / 元气 / 阴阳. Each trait carries a style line and its own
+  quote set. Pick any combination — that is your character.
+- **Compose your own.** Menu → 人物 → 新建. Choose traits, optionally write extra
+  quotes and a supplementary note, name it or leave it unnamed. No fixed identity
+  is baked in; only the traits you select shape the voice.
+- **Fixed lines come from the quote library by retrieval.** The app scores lines
+  against what you just said, feeds the closest ones to the model as tone
+  examples, and offline answers with the closest line when the match is good
+  enough — instead of drawing a random quote.
 - **Learning from real chat, not quizzes.** Turn on 本人模式: every message the
   person types is stored locally as (previous line → their line). The app
   retrieves the closest pairs and feeds them to the model as few-shot examples;
@@ -53,23 +55,32 @@ gradle assembleDebug --offline   # JDK 21, Android SDK 35, Gradle 8.11
 No AndroidX, no third-party libraries: plain framework views plus a hand-written
 GLB renderer.
 
-### Characters: how the style is wired
+### Traits: how the style is wired
 
-`android/app/src/main/assets/characters.json` holds the built-ins:
+`android/app/src/main/assets/traits.json` holds the trait library:
 
 ```json
 {
-  "id": "dodo", "name": "豆豆", "tagline": "四年级小学生，幽默",
-  "style": "你是豆豆，小学四年级，10 岁……",
-  "greeting": "你也被作业抓来啦？",
-  "lines": ["因为我是小学生，所以我有理。", "..."],
-  "rules": [{"keys": ["作业", "考试"], "replies": ["你写完了吗？借我抄抄。"]}]
+  "id": "wenrou", "name": "温柔",
+  "style": "说话轻，先接住对方的情绪……",
+  "lines": ["慢点说，我在听。", "..."]
 }
 ```
 
-- `style` goes into the system prompt unchanged — that is the character.
-- `lines` are the catchphrases used for offline replies and as tone examples.
-- `rules` give keyword-triggered answers when no model is configured.
+A character is a selection of traits:
+
+```json
+{ "name": "小暖", "traits": ["wenrou", "youmo"],
+  "extraLines": ["……"], "extraStyle": "", "greeting": "慢点说，我在听。" }
+```
+
+- Trait `style` strings are concatenated into the system prompt — that is the
+  personality. There is no name/age/occupation unless you write it in the
+  optional note.
+- `lines` from all selected traits are merged into the quote library. The
+  library is queried by similarity to the latest message: best matches are used
+  as tone examples online, and as the offline reply when the score is high
+  enough.
 - Characters created in the app are stored in `files/characters.json` (user
   data, never in the APK).
 
@@ -94,10 +105,13 @@ pig demo and are kept only for history.
 一个 Android 上的「温情陪护」小工具：屏幕上是一只真 3D 的小猪（OpenGL ES
 2.0 渲染，可拖动旋转、双指缩放），文字以气泡形式出现，不做成聊天记录窗口。
 
-- **内置 4 个人物**：林晚（温柔学姐）、阿刺（毒舌损友）、陈默（冷静医生）、
-  豆豆（四年级小学生，幽默）。每人有自己的口头禅和离线规则。
-- **自己建人物**：菜单 →「人物」→「新建」。名字、一句话人设、风格（原样进
-  提示词，你想让它怎么说话就怎么写）、口头禅、见面第一句，全由你定。
+- **10 种性格，不预设身份**：温柔 / 幽默 / 毒舌 / 高冷 / 粘人 / 理性 / 直率 /
+  傲娇 / 元气 / 阴阳。每种性格自带一段「怎么说话」和一组语录，挑几个拼起来就是
+  一个角色，不绑年龄、职业、名字。
+- **自己拼角色**：菜单 →「人物」→「新建」。勾性格、可选补几句自己的语录、
+  补一段说明，名字可留空。提示词里的风格全部来自你勾的性格。
+- **固定的话从语录库检索**：按你刚说的话给语录打分，最贴的几句作为例句给模型；
+  离线时分数够高就直接说那句，而不是随机抽。
 - **本人模式**（自然学习）：打开后，这个人打的每句话都会连同上一条存进手机，
   在线时作为例子塞进提示词，离线时按相似度直接用她说过的那句。不做问卷、
   不打分。
