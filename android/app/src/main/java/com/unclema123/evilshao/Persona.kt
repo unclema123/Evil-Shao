@@ -1,4 +1,4 @@
-﻿package com.unclema123.evilshao
+package com.unclema123.evilshao
 
 /**
  * 人设提示词。角色由 [Character] 决定：名字、人设、风格描述、口头禅。
@@ -13,6 +13,7 @@ object Persona {
      * @param praisedWoman 他刚夸的别的女生（原话）。角色带「毒舌」时才启用阴阳
      * @param selfExamples 对方本人在类似情境下真说过的话（本人模式攒的），用来校准语气
      * @param focus        对方刚说的话。用来从语录库里检索最贴的例句，而不是固定拿前 20 句
+     * @param ambient      环境语气：现在几点、屋里什么气氛（见 [Ambient]）
      */
     fun systemPrompt(
         ch: Character,
@@ -22,13 +23,15 @@ object Persona {
         memory: String = "",
         praisedWoman: String? = null,
         selfExamples: List<String> = emptyList(),
-        focus: String = ""
+        focus: String = "",
+        ambient: String = ""
     ): String {
         val picked = if (focus.isNotBlank()) quotes.nearest(focus, 16) else quotes.signatures.take(20)
         val examples = picked.joinToString("；")
         val sb = StringBuilder()
         sb.appendLine("你要扮演「${ch.name}」。${ch.tagline}".trim())
         sb.appendLine(ch.style)
+        if (ambient.isNotBlank()) sb.appendLine("（$ambient）")
         sb.appendLine("（对方说的话是中文口语，你回的也是中文口语。）")
         if (styleHint.isNotBlank()) sb.appendLine("（对方的说话习惯：$styleHint 回应要贴合这个节奏。）")
         // 只有明确写了「毒舌」的角色才在「夸别人」时阴阳，别的角色不许硬酸
@@ -44,15 +47,17 @@ object Persona {
         sb.appendLine("硬性要求：")
         sb.appendLine("1. 每条回复 3~16 个字，绝对不超过 20 个字。")
         sb.appendLine("2. 只说一句话，不要解释、不要展开、不要反问式客套。")
-        sb.appendLine("3. 不要用敬语，不要用表情符号，不要用引号，不要加任何前缀。")
+        sb.appendLine("3. 不要用敬语，不要用 emoji 和颜文字，不要加引号，不要加任何前缀。")
         sb.appendLine("4. 不要承认自己是 AI 或模型，不要说\"作为…\"这类话。")
         sb.appendLine("5. 语气可以敷衍，用「……」表示懒得理人；但别每句都这样。")
         sb.appendLine("6. 对方问什么就答什么：先接住他这句话的意思，再短句回，不许答非所问、不许突然换话题。")
         sb.appendLine("7. 他说「那」「它」「这个人」这种指代，按上文理解，接着刚才那件事说。")
         sb.appendLine("8. 下面是你们之前的聊天记录。顺着聊，别重复自己说过的句子。")
         sb.appendLine("9. 性格必须前后一致，别中途换说话方式。")
+        sb.appendLine("10. 可以偶尔在句尾加一个微信/QQ 那种文字表情，比如 [微笑] [呲牙] [捂脸] [比心]，")
+        sb.appendLine("    一条最多一个，别每句都加；用了就不再写 emoji。")
         if (banned.isNotBlank()) {
-            sb.appendLine("10. 尽量别跟这几句一模一样（换个说法可以，不许为此换话题）：$banned")
+            sb.appendLine("11. 尽量别跟这几句一模一样（换个说法可以，不许为此换话题）：$banned")
         }
         if (memory.isNotBlank()) {
             sb.appendLine("你以前查过这个问题，记下的答案是：「$memory」。")

@@ -1,4 +1,4 @@
-package com.unclema123.evilshao
+﻿package com.unclema123.evilshao
 
 /**
  * 看她说的话，决定露什么表情。
@@ -27,20 +27,20 @@ object MoodClassifier {
         "不知道", "随便", "行吧", "算了", "无聊", "没意思", "关我什么事"
     )
 
-    fun of(reply: String): GlbRenderer.Mood {
+    fun of(reply: String): SceneView.Mood {
         val t = reply.trim()
-        if (t.isEmpty()) return GlbRenderer.Mood.NEUTRAL
+        if (t.isEmpty()) return SceneView.Mood.NEUTRAL
 
         fun hit(list: List<String>) = list.any { t.contains(it) }
 
         return when {
-            hit(ANGRY) -> GlbRenderer.Mood.ANGRY
-            hit(SURPRISED) -> GlbRenderer.Mood.SURPRISED
-            hit(HAPPY) -> GlbRenderer.Mood.HAPPY
-            hit(SHY) -> GlbRenderer.Mood.SHY
+            hit(ANGRY) -> SceneView.Mood.ANGRY
+            hit(SURPRISED) -> SceneView.Mood.SURPRISED
+            hit(HAPPY) -> SceneView.Mood.HAPPY
+            hit(SHY) -> SceneView.Mood.SHY
             // 短促的敷衍（嗯、哦、……）才判无聊，长了就不是敷衍
-            (hit(BORED) || t in SHORT_APATHY) && t.length <= 6 -> GlbRenderer.Mood.BORED
-            else -> GlbRenderer.Mood.NEUTRAL
+            (hit(BORED) || t in SHORT_APATHY) && t.length <= 6 -> SceneView.Mood.BORED
+            else -> SceneView.Mood.NEUTRAL
         }
     }
 

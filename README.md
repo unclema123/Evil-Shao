@@ -13,8 +13,10 @@ different voices — and you can write your own character, in your own words.
 
 ### What it is
 
-- **3D companion, not a chat window.** A low-poly pig (OpenGL ES 2.0) sits on
-  screen and talks in a speech bubble. Drag to rotate, pinch to zoom.
+- **2D cozy scene, drawn in code.** A warm little room — window, curtains,
+  bookshelf, plant, string lights — with a flat-illustration girl at the centre.
+  She blinks, breathes, and changes expression (happy / shy / bored / annoyed)
+  with what she says. Everything is Canvas drawing, no external art assets.
 - **Ten personality traits, not preset roles.** 温柔 / 幽默 / 毒舌 / 高冷 / 粘人 /
   理性 / 直率 / 傲娇 / 元气 / 阴阳. Each trait carries a style line and its own
   quote set. Pick any combination — that is your character.
@@ -25,6 +27,12 @@ different voices — and you can write your own character, in your own words.
   against what you just said, feeds the closest ones to the model as tone
   examples, and offline answers with the closest line when the match is good
   enough — instead of drawing a random quote.
+- **Ambient tone.** Local time (morning / noon / late night) and the scene are
+  added to the prompt, so she speaks softer at 1 a.m. and lighter in the morning.
+- **WeChat-style emoticons.** She may append one `[呲牙]` / `[捂脸]` / `[比心]`
+  style text emoticon to a short reply — the same bracket style you type in QQ.
+- **Import your own quote file.** Menu → 导入语录, pick a `.txt` with one line
+  per sentence; it is merged into the current character's library.
 - **Learning from real chat, not quizzes.** Turn on 本人模式: every message the
   person types is stored locally as (previous line → their line). The app
   retrieves the closest pairs and feeds them to the model as few-shot examples;
@@ -102,8 +110,9 @@ pig demo and are kept only for history.
 
 ### 这是什么
 
-一个 Android 上的「温情陪护」小工具：屏幕上是一只真 3D 的小猪（OpenGL ES
-2.0 渲染，可拖动旋转、双指缩放），文字以气泡形式出现，不做成聊天记录窗口。
+一个 Android 上的「温情陪护」小工具：2D 温馨小屋（窗、窗帘、书架、绿植、串灯）
+加一个手绘风女生，纯 Canvas 绘制，没有外部图片素材；她会眨眼、呼吸，表情随
+回复变。文字以气泡形式出现，不做成聊天记录窗口。
 
 - **10 种性格，不预设身份**：温柔 / 幽默 / 毒舌 / 高冷 / 粘人 / 理性 / 直率 /
   傲娇 / 元气 / 阴阳。每种性格自带一段「怎么说话」和一组语录，挑几个拼起来就是
@@ -112,6 +121,9 @@ pig demo and are kept only for history.
   补一段说明，名字可留空。提示词里的风格全部来自你勾的性格。
 - **固定的话从语录库检索**：按你刚说的话给语录打分，最贴的几句作为例句给模型；
   离线时分数够高就直接说那句，而不是随机抽。
+- **环境语气**：按手机本地时间调语气，深夜会自动说轻一点、短一点。
+- **表情**：可以偶尔带一个 [呲牙] [捂脸] [比心] 这类微信/QQ 文字表情。
+- **导入语录**：菜单 →「导入语录」，选一个一行一句的 txt，并进当前角色。
 - **本人模式**（自然学习）：打开后，这个人打的每句话都会连同上一条存进手机，
   在线时作为例子塞进提示词，离线时按相似度直接用她说过的那句。不做问卷、
   不打分。

@@ -1,4 +1,4 @@
-package com.unclema123.evilshao
+﻿package com.unclema123.evilshao
 
 import android.app.Activity
 import android.app.AlertDialog
@@ -8,14 +8,12 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.graphics.Color
 import android.graphics.Rect
-import android.opengl.GLSurfaceView
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.text.InputType
-import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.inputmethod.BaseInputConnection
@@ -27,8 +25,8 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import kotlin.math.abs
 import java.util.Locale
+import kotlin.math.abs
 
 class MainActivity : Activity() {
 
@@ -46,14 +44,13 @@ class MainActivity : Activity() {
     /** 调试脚本塞进来的句子，不受拼音拦截影响 */
     private var debugAsk = false
 
-    private lateinit var gl: GLSurfaceView
+    private lateinit var scene: SceneView
     private lateinit var bubble: TextView
     private lateinit var input: EditText
     private lateinit var inputBar: View
     private lateinit var titleView: TextView
     private lateinit var menuPanel: LinearLayout
     private lateinit var scrim: View
-    private lateinit var renderer: GlbRenderer
     private lateinit var quotes: Quotes
     private lateinit var chars: CharacterStore
     private lateinit var chatLog: ChatLog
@@ -98,8 +95,6 @@ class MainActivity : Activity() {
         quotes.invented.addAll(dreamer.invented)
         quotes.dreamer = dreamer
 
-        renderer = GlbRenderer(this)
-
         selfCorpus = SelfCorpus(this)
         selfMode = getSharedPreferences("input", MODE_PRIVATE).getBoolean("selfMode", false)
 
@@ -124,12 +119,8 @@ class MainActivity : Activity() {
             postToUi = { r -> ui.post(r) }
         )
 
-        gl = findViewById(R.id.gl)
-        gl.setEGLContextClientVersion(2)
-        // 4x MSAA：边缘锯齿是小猪看着「糙」的主因之一；拿不到多重采样就自动退回普通配置
-        gl.setEGLConfigChooser(MsaaChooser())
-        gl.setRenderer(renderer)
-        gl.renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
+        scene = findViewById(R.id.scene)
+        scene.setOnClickListener { poke() }
 
         bubble = findViewById(R.id.bubble)
         input = findViewById(R.id.input)
@@ -153,13 +144,6 @@ class MainActivity : Activity() {
 
         titleView.text = getString(R.string.app_name)
         titleView.setOnClickListener { showNameSettings(firstRun = false) }
-
-        gl.setOnTouchListener(TouchHandler())
-
-        // 调试：adb ... --es dump 1 会在渲染完后把像素打成字符图（screencap 抓不到 GL 层）
-        if (intent?.getStringExtra("dump") != null) {
-            ui.postDelayed({ GlbRenderer.dumpPending = true }, 2500)
-        }
 
         send.setOnClickListener { submit() }
         input.setOnEditorActionListener { _, _, _ ->
@@ -201,6 +185,10 @@ class MainActivity : Activity() {
         findViewById<TextView>(R.id.item_character).setOnClickListener {
             closeMenu()
             showCharacters()
+        }
+        findViewById<TextView>(R.id.item_import).setOnClickListener {
+            closeMenu()
+            pickQuoteFile()
         }
         updateSelfLabel()
         updateCharacterLabel()
@@ -246,7 +234,7 @@ class MainActivity : Activity() {
 
         ui.postDelayed({
             say("……你来啦。")
-            renderer.wave(2600L)
+            scene.wave(2600L)
         }, 500)
 
         debugMood()
@@ -277,15 +265,15 @@ class MainActivity : Activity() {
         if (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE == 0) return
         val want = intent?.getStringExtra("mood")?.lowercase() ?: return
         val m = when (want) {
-            "neutral" -> GlbRenderer.Mood.NEUTRAL
-            "happy" -> GlbRenderer.Mood.HAPPY
-            "angry" -> GlbRenderer.Mood.ANGRY
-            "surprised" -> GlbRenderer.Mood.SURPRISED
-            "shy" -> GlbRenderer.Mood.SHY
-            "bored" -> GlbRenderer.Mood.BORED
+            "neutral" -> SceneView.Mood.NEUTRAL
+            "happy" -> SceneView.Mood.HAPPY
+            "angry" -> SceneView.Mood.ANGRY
+            "surprised" -> SceneView.Mood.SURPRISED
+            "shy" -> SceneView.Mood.SHY
+            "bored" -> SceneView.Mood.BORED
             else -> return
         }
-        ui.postDelayed({ renderer.show(m, 600_000L) }, 300)
+        ui.postDelayed({ scene.showMood(m, 600_000L) }, 300)
     }
 
     override fun onResume() {
@@ -440,8 +428,8 @@ class MainActivity : Activity() {
         chatLog.append("她", reply)
         say(reply)
         val mood = MoodClassifier.of(reply)
-        renderer.show(mood)
-        if (mood == GlbRenderer.Mood.HAPPY) renderer.wave(2000L)
+        scene.showMood(mood)
+        if (mood == SceneView.Mood.HAPPY) scene.wave(2000L)
         updateBadges()
         sinceTrain++
         if (sinceTrain >= 12) {
@@ -739,8 +727,8 @@ class MainActivity : Activity() {
      */
     private fun showAbout() {
         val msg = StringBuilder()
-            .append("版本 2.1 · 温情陪护 Warm Companion\n\n")
-            .append("· 10 种性格，挑几个拼成一个角色：菜单 →「人物」→「新建」。用哪几种、补哪些话，都由你定。\n")
+            .append("版本 2.2 · 温情陪护 Warm Companion\n\n")
+            .append("· 2D 温馨小屋 + 手绘风女生，表情随回复变；10 种性格挑几个拼成一个角色。\n").append("· 菜单 →「人物」新建/编辑；「导入语录」选 txt，一行一句并进当前角色。\n").append("· 可以偶尔用 [呲牙] [捂脸] 这种微信/QQ 文字表情；深夜语气会自动放软。\n")
             .append("· 每个人物是角色，不是真人：台词由你选的模型实时生成，偶尔抽风很正常。\n")
             .append("· 聊天记录只存这台手机（files/chatlog.jsonl），「聊天记录」里能随时清空；")
             .append("除了发给你选的大模型接口，不会上传到别处。\n")
@@ -955,6 +943,63 @@ class MainActivity : Activity() {
             }
             .setNegativeButton("取消", null)
             .show()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_QUOTES || resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        try {
+            val raw = contentResolver.openInputStream(uri)
+                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+            importLines(raw)
+        } catch (e: Exception) {
+            Toast.makeText(this, "读不了这个文件：${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** 选一个 txt：一行一句，并进当前角色的语录库 */
+    private fun pickQuoteFile() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "text/plain"
+        }
+        try {
+            startActivityForResult(intent, REQ_QUOTES)
+        } catch (e: Exception) {
+            Toast.makeText(this, "打不开文件选择器：${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun importLines(raw: String) {
+        val lines = raw.split('\n', '\r')
+            .map { it.trim().trimStart('\uFEFF') }
+            .filter { it.isNotEmpty() && it.length <= 60 }
+            .distinct()
+        if (lines.isEmpty()) {
+            Toast.makeText(this, "没读到句子（一行一句的 txt 才行）", Toast.LENGTH_LONG).show()
+            return
+        }
+        val ch = chars.active()
+        val extra = (ch.extraLines + lines).distinct().take(500)
+        // 内置角色不能就地改：导入时自动复制一份成「我的」
+        val c = chars.compose(
+            id = if (ch.builtin) "u" + System.currentTimeMillis() else ch.id,
+            name = ch.name,
+            traitIds = ch.traitIds,
+            extraLines = extra,
+            extraStyle = ch.extraStyle,
+            greeting = ch.greeting,
+            builtin = false
+        )
+        chars.saveUser(c)
+        chars.select(c.id)
+        applyCharacter(c, announce = false)
+        Toast.makeText(
+            this,
+            "导入 ${lines.size} 句，${c.name} 现在共 ${c.lines.size} 句语录",
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     private fun toggleSelfMode() {
@@ -1209,92 +1254,19 @@ class MainActivity : Activity() {
         if (::brain.isInitialized) brain.shutdown()
     }
 
-    /** 拖动旋转、点一下让她说话 */
-
-    /**
-     * 优先选带 4x 多重采样的 EGL 配置，选不到就用普通的。
-     *
-     * 手写的原因：GLSurfaceView 默认配置一定没有 MSAA，Activity 里也没别处能开，
-     * 只能自己挑 EGLConfig。边缘锯齿是小猪看着「糙」的主因之一。
-     */
-    private class MsaaChooser : GLSurfaceView.EGLConfigChooser {
-        override fun chooseConfig(
-            egl: javax.microedition.khronos.egl.EGL10,
-            display: javax.microedition.khronos.egl.EGLDisplay
-        ): javax.microedition.khronos.egl.EGLConfig? {
-            val configs = arrayOfNulls<javax.microedition.khronos.egl.EGLConfig>(1)
-            val num = IntArray(1)
-            fun pick(attribs: IntArray): javax.microedition.khronos.egl.EGLConfig? {
-                configs[0] = null
-                num[0] = 0
-                return if (egl.eglChooseConfig(display, attribs, configs, 1, num) && num[0] > 0) configs[0] else null
-            }
-            val msaa = intArrayOf(
-                javax.microedition.khronos.egl.EGL10.EGL_RED_SIZE, 8,
-                javax.microedition.khronos.egl.EGL10.EGL_GREEN_SIZE, 8,
-                javax.microedition.khronos.egl.EGL10.EGL_BLUE_SIZE, 8,
-                javax.microedition.khronos.egl.EGL10.EGL_ALPHA_SIZE, 8,
-                javax.microedition.khronos.egl.EGL10.EGL_DEPTH_SIZE, 16,
-                javax.microedition.khronos.egl.EGL10.EGL_SAMPLE_BUFFERS, 1,
-                javax.microedition.khronos.egl.EGL10.EGL_SAMPLES, 4,
-                javax.microedition.khronos.egl.EGL10.EGL_RENDERABLE_TYPE, 4,
-                javax.microedition.khronos.egl.EGL10.EGL_NONE
-            )
-            pick(msaa)?.let {
-                android.util.Log.d("EvilShao", "EGL: 4x MSAA 已启用")
-                return it
-            }
-            val plain = intArrayOf(
-                javax.microedition.khronos.egl.EGL10.EGL_RED_SIZE, 8,
-                javax.microedition.khronos.egl.EGL10.EGL_GREEN_SIZE, 8,
-                javax.microedition.khronos.egl.EGL10.EGL_BLUE_SIZE, 8,
-                javax.microedition.khronos.egl.EGL10.EGL_ALPHA_SIZE, 8,
-                javax.microedition.khronos.egl.EGL10.EGL_DEPTH_SIZE, 16,
-                javax.microedition.khronos.egl.EGL10.EGL_RENDERABLE_TYPE, 4,
-                javax.microedition.khronos.egl.EGL10.EGL_NONE
-            )
-            pick(plain)?.let {
-                android.util.Log.d("EvilShao", "EGL: 没拿到 MSAA，用普通配置")
-                return it
-            }
-            return null
-        }
+    /** 点一下画面：她说一句自己的话。2D 版不用拖动旋转了，点一下就够 */
+    private fun poke() {
+        val line = style.adapt(quotes.randomSignature())
+        chatLog.append("她", line)
+        say(line)
+        scene.showMood(MoodClassifier.of(line))
+        scene.wave(1200L)
+        // 记一笔，免得接下来的模型回复跟她刚说的撞车
+        brain.noteSaid(line)
+        updateBadges()
     }
 
-    private inner class TouchHandler : View.OnTouchListener {
-        private var lastX = 0f
-        private var lastY = 0f
-        private var travelled = 0f
-
-        override fun onTouch(v: View, e: MotionEvent): Boolean {
-            when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    lastX = e.x
-                    lastY = e.y
-                    travelled = 0f
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = e.x - lastX
-                    val dy = e.y - lastY
-                    lastX = e.x
-                    lastY = e.y
-                    travelled += abs(dx) + abs(dy)
-                    renderer.yaw += dx * 0.38f
-                    renderer.pitch = (renderer.pitch + dy * 0.20f).coerceIn(-18f, 18f)
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (travelled < 12f) {
-                        val line = style.adapt(quotes.randomSignature())
-                        chatLog.append("她", line)
-                        say(line)
-                        renderer.show(MoodClassifier.of(line))
-                        // 记一笔，免得接下来的模型回复跟她刚说的撞车
-                        brain.noteSaid(line)
-                        updateBadges()
-                    }
-                }
-            }
-            return true
-        }
+    companion object {
+        private const val REQ_QUOTES = 1001
     }
 }

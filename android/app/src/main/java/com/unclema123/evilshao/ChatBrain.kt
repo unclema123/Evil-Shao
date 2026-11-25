@@ -1,4 +1,4 @@
-package com.unclema123.evilshao
+﻿package com.unclema123.evilshao
 
 import java.util.concurrent.Executors
 import kotlin.random.Random
@@ -218,7 +218,8 @@ class ChatBrain(
             praisedWoman = praised,
             // 本人模式：对方真在类似情境下说过的话，比任何规则都准
             selfExamples = selfExamples,
-            focus = text
+            focus = text,
+            ambient = Ambient.prompt()
         )
         val raw = llm.chatStream(
             sys, text, history(),
@@ -403,7 +404,8 @@ class ChatBrain(
      */
     private fun deliver(gen: Int, reply: String, source: Source, ignoreEcho: Boolean = false): Boolean {
         if (stale(gen)) return true
-        val text = reply.trim()
+        // 微信/QQ 那种文字表情，短句偶尔挂一个（模型自己带了就不再挂）
+        val text = Emoticons.maybe(reply)
         if (text.isEmpty()) return false
         if (ReplyGuard.isEchoOf(text, recentList())) {
             if (!ignoreEcho) {

@@ -1,12 +1,12 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#FDEAF0">
 
-    <!-- 第 1 层：3D 小猪 -->
-    <android.opengl.GLSurfaceView
-        android:id="@+id/gl"
+    <!-- 第 1 层：2D 温馨小屋 + 人物 -->
+    <com.unclema123.evilshao.SceneView
+        android:id="@+id/scene"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
@@ -158,6 +158,11 @@
             android:id="@+id/item_character"
             style="@style/MenuRow"
             android:text="@string/menu_character" />
+
+        <TextView
+            android:id="@+id/item_import"
+            style="@style/MenuRow"
+            android:text="@string/menu_import" />
 
         <TextView
             android:id="@+id/item_name"
