@@ -116,7 +116,8 @@ mm=re.compile(r"(    <!-- mouth: soft smile with a hint of lower lip -->\n)(.*?)
 
 for name,(e,b,m) in VARIANTS.items():
     t=s
-    t=mask.sub(lambda mo: mo.group(1)+EYES[e]+"    <!-- blush -->", t, count=1)
+    eye_txt=EYES[e].replace("<g>", '<g transform="translate(270 344) scale(0.94) translate(-270 -344)">',1)
+    t=mask.sub(lambda mo: mo.group(1)+eye_txt+"    <!-- blush -->", t, count=1)
     t=mb.sub(lambda mo: mo.group(1)+BROWS[b]+"    <!-- eyes -->", t, count=1)
     t=mm.sub(lambda mo: mo.group(1)+MOUTH[m]+"    <!-- hair clip -->", t, count=1)
     io.open(os.path.join(outdir,name+".html"),"w",encoding="utf-8",newline="\n").write(t)

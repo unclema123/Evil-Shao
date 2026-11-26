@@ -27,6 +27,12 @@ import android.widget.TextView
 import android.widget.Toast
 import java.util.Locale
 import kotlin.math.abs
+import android.net.Uri
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.TextPaint
+import android.text.method.LinkMovementMethod
+import android.text.style.ClickableSpan
 
 class MainActivity : Activity() {
 
@@ -726,18 +732,47 @@ class MainActivity : Activity() {
      * 这几句看着像废话，真出事的时候它们就是边界。
      */
     private fun showAbout() {
-        val msg = StringBuilder()
-            .append("版本 2.3 · 温情陪护 Warm Companion\n\n")
-            .append("· 2D 温馨小屋 + 插画女生（七个表情：普通/眨眼/开心/害羞/无聊/生气/惊讶），10 种性格挑几个拼成一个角色。\n").append("· 菜单 →「人物」新建/编辑；「导入语录」选 txt，一行一句并进当前角色。\n").append("· 可以偶尔用 [呲牙] [捂脸] 这种微信/QQ 文字表情；深夜语气会自动放软。\n")
+        val msg = SpannableStringBuilder()
+        msg.append("版本 2.4 · 温情陪护 Warm Companion\n\n")
+            .append("· 2D 温馨小屋 + 插画女生（七个表情），10 种性格挑几个拼成一个角色。\n")
+            .append("· 菜单 →「人物」新建/编辑；「导入语录」选 txt，一行一句并进当前角色。\n")
+            .append("· 可以偶尔用 [呲牙] [捂脸] 这种微信/QQ 文字表情；深夜语气会自动放软。\n")
             .append("· 每个人物是角色，不是真人：台词由你选的模型实时生成，偶尔抽风很正常。\n")
             .append("· 聊天记录只存这台手机（files/chatlog.jsonl），「聊天记录」里能随时清空；")
             .append("除了发给你选的大模型接口，不会上传到别处。\n")
             .append("· 免 Key 通道是公开服务，别在里面发密码、身份证这类东西。\n")
-            .append("· 素材：参考图由豆包生成，3D 模型用开源 TripoSR 重建；来源与许可写在仓库 NOTICE 里。")
-            .toString()
+            .append("· 素材：人物与场景是本仓库里的 SVG 手绘稿（art2d/）渲染而来，来源与许可见 NOTICE。\n")
+        msg.append("· 源码与更新：")
+        val linkStart = msg.length
+        msg.append("github.com/unclema123/Evil-Shao")
+        msg.setSpan(object : ClickableSpan() {
+            override fun onClick(widget: View) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL)))
+                } catch (e: Exception) {
+                    Toast.makeText(this@MainActivity, REPO_URL, Toast.LENGTH_LONG).show()
+                }
+            }
+
+            override fun updateDrawState(ds: TextPaint) {
+                super.updateDrawState(ds)
+                ds.isUnderlineText = false
+                ds.color = 0xFFB4655A.toInt()
+            }
+        }, linkStart, msg.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+
+        val tv = TextView(this).apply {
+            text = msg
+            textSize = 13f
+            setLineSpacing(8f, 1f)
+            setPadding(48, 36, 48, 20)
+            movementMethod = LinkMovementMethod.getInstance()
+            setLinkTextColor(0xFFB4655A.toInt())
+            setTextIsSelectable(false)
+        }
         AlertDialog.Builder(this)
             .setTitle("关于")
-            .setMessage(msg)
+            .setView(tv)
             .setPositiveButton("知道了", null)
             .show()
     }
@@ -1268,5 +1303,6 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQ_QUOTES = 1001
+        const val REPO_URL = "https://github.com/unclema123/Evil-Shao"
     }
 }

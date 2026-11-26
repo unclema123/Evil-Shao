@@ -1,13 +1,19 @@
 # Warm Companion · 温情陪护
 
-A small Android companion app: a real 3D pig on screen, four characters with
-different voices — and you can write your own character, in your own words.
+A small Android companion app: an illustrated girl in a cosy room, ten
+personality traits you combine into a character, and a quote library the app
+retrieves lines from — online as tone examples, offline as her actual reply.
 
-中文说明在下面的「中文」一节；Android 安装包是
-[`android/app-debug.apk`](android/app-debug.apk)。
+- Repository: **[github.com/unclema123/Evil-Shao](https://github.com/unclema123/Evil-Shao)**
+- Download: [`android/app-debug.apk`](https://github.com/unclema123/Evil-Shao/raw/main/android/app-debug.apk)
+  (or grab it from the repo page)
+- Art source: [`art2d/scene.html`](art2d/scene.html) — the illustration is SVG,
+  rasterised by [`art2d/tools`](art2d/tools) into the APK assets
 
-> Renamed from **Evil Shao / PigNpc**. The old persona packs are gone: 2.0
-> ships four fictional characters and a character editor instead.
+中文说明在下面的「中文」一节。
+
+> Renamed from **Evil Shao / PigNpc**. The old persona packs are gone; the
+> character is now built from traits you pick, and the visuals are 2D.
 
 ## English
 
@@ -50,7 +56,7 @@ different voices — and you can write your own character, in your own words.
 
 ### Install
 
-1. Download [`android/app-debug.apk`](android/app-debug.apk).
+1. Download [`android/app-debug.apk`](https://github.com/unclema123/Evil-Shao/raw/main/android/app-debug.apk).
 2. Allow install from unknown sources, install, open **Warm Companion**.
 3. Optional: Menu → AI, paste a base URL / model / API key (or tap the 百炼
    preset), then chat.
@@ -140,12 +146,15 @@ pig demo and are kept only for history.
 
 ### 安装
 
-装 [`android/app-debug.apk`](android/app-debug.apk) 即可，需要 Android 8.0+。
+装 [`android/app-debug.apk`](https://github.com/unclema123/Evil-Shao/raw/main/android/app-debug.apk)
+即可（也可以从仓库首页点进去下载），需要 Android 8.0+。
 
 ### 和以前比
 
 2.0 起改名 **Warm Companion / 温情陪护**，删掉了之前按真人聊天记录整理的
-全部语录包，换成 4 个虚构人物 + 人物编辑器；学习改成按角色分开的本人模式语料。
+全部语录包。2.1 把「人物」拆成可勾选的性格（不再预设身份），2.2 换成 2D 场景，
+2.3 换成矢量插画女生 + 七个表情，2.4 把人物比例调得更像真人。
+学习改成按角色分开的本人模式语料。
 
 ### 旧版
 

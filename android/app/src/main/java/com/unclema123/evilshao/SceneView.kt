@@ -145,10 +145,10 @@ class SceneView @JvmOverloads constructor(
     private companion object {
         const val DESIGN_W = 1080f
         const val DESIGN_H = 1920f
-        const val GIRL_X = 295f
-        const val GIRL_Y = 252f
-        const val GIRL_W = 490f
-        const val GIRL_H = 1668f
+        const val GIRL_X = 329f
+        const val GIRL_Y = 343f
+        const val GIRL_W = 422f
+        const val GIRL_H = 1577f
         val NAMES = listOf("neutral", "blink", "happy", "shy", "bored", "angry", "surprised")
     }
 }
