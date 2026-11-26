@@ -727,8 +727,8 @@ class MainActivity : Activity() {
      */
     private fun showAbout() {
         val msg = StringBuilder()
-            .append("版本 2.2 · 温情陪护 Warm Companion\n\n")
-            .append("· 2D 温馨小屋 + 手绘风女生，表情随回复变；10 种性格挑几个拼成一个角色。\n").append("· 菜单 →「人物」新建/编辑；「导入语录」选 txt，一行一句并进当前角色。\n").append("· 可以偶尔用 [呲牙] [捂脸] 这种微信/QQ 文字表情；深夜语气会自动放软。\n")
+            .append("版本 2.3 · 温情陪护 Warm Companion\n\n")
+            .append("· 2D 温馨小屋 + 插画女生（七个表情：普通/眨眼/开心/害羞/无聊/生气/惊讶），10 种性格挑几个拼成一个角色。\n").append("· 菜单 →「人物」新建/编辑；「导入语录」选 txt，一行一句并进当前角色。\n").append("· 可以偶尔用 [呲牙] [捂脸] 这种微信/QQ 文字表情；深夜语气会自动放软。\n")
             .append("· 每个人物是角色，不是真人：台词由你选的模型实时生成，偶尔抽风很正常。\n")
             .append("· 聊天记录只存这台手机（files/chatlog.jsonl），「聊天记录」里能随时清空；")
             .append("除了发给你选的大模型接口，不会上传到别处。\n")

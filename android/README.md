@@ -1219,3 +1219,24 @@ quotes.txt 均已移除，versionName 2.1 / code 13。模拟器这轮又假死�
 图标为 res/drawable/ic_launcher.xml。模拟器仍然 adb 掉线（之前飞行模式测试导致），
 这轮 UI 没在真机上跑。
 
+
+### 第十八轮：插画版人物（弃用 Canvas 手绘）
+
+反馈：上一版代码画的女生「建模太丑陋了」。改用矢量插画 + 无头浏览器渲染。
+
+- 新增 `art2d/scene.html`：整间屋子 + 人物的 SVG 源文件（窗、窗帘、书架、绿植、
+  串灯、地毯；女生端茶杯，平涂风格）
+- `art2d/tools/make_variants.py` 生成七个表情页（普通/眨眼/开心/害羞/无聊/生气/
+  惊讶），`art2d/tools/export_assets.py` 用无头 Chrome 以 2 倍渲染，导出
+  `scene_bg.jpg`（1080×1920）和 `girl_*.webp`（490×1668，带透明通道）
+- `SceneView` 改成纯位图绘制：背景 + 人物贴图，呼吸、眨眼（4.2 秒一次）、
+  星光都保留；表情按 `MoodClassifier` 切换整张表情图
+- 长屏适配：按宽度铺满、整体贴底，顶部多出来的部分补墙面色，看不出接缝；
+  16:9 及更宽的屏按高度铺
+- 美术全部自制（SVG 手写路径），不引入第三方素材
+- 版号 2.3（versionCode 15）
+
+验证：编译通过；APK 1.2MB，含 `scene_bg.jpg` + 7 张 `girl_*.webp`，versionName 2.3 /
+code 15。模拟器 adb 仍未恢复，界面没在真机上跑过；已用同尺寸模拟合成图确认
+1080×2400 和 1080×1920 两种屏幕的构图。
+

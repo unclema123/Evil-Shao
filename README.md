@@ -13,10 +13,14 @@ different voices — and you can write your own character, in your own words.
 
 ### What it is
 
-- **2D cozy scene, drawn in code.** A warm little room — window, curtains,
-  bookshelf, plant, string lights — with a flat-illustration girl at the centre.
-  She blinks, breathes, and changes expression (happy / shy / bored / annoyed)
-  with what she says. Everything is Canvas drawing, no external art assets.
+- **2D cozy room with an illustrated girl.** A warm little room — window,
+  curtains, bookshelf, plant, string lights — with a flat-illustration girl
+  holding a cup of tea. She breathes, blinks, and switches between seven
+  expressions (neutral / blink / happy / shy / bored / angry / surprised) to
+  match what she says.
+  The art is authored as SVG in [`art2d/scene.html`](art2d/scene.html) and
+  rasterised into `scene_bg.jpg` + `girl_*.webp`; [`art2d/tools`](art2d/tools)
+  regenerates them with a headless Chrome, so every shape stays editable.
 - **Ten personality traits, not preset roles.** 温柔 / 幽默 / 毒舌 / 高冷 / 粘人 /
   理性 / 直率 / 傲娇 / 元气 / 阴阳. Each trait carries a style line and its own
   quote set. Pick any combination — that is your character.
@@ -111,8 +115,10 @@ pig demo and are kept only for history.
 ### 这是什么
 
 一个 Android 上的「温情陪护」小工具：2D 温馨小屋（窗、窗帘、书架、绿植、串灯）
-加一个手绘风女生，纯 Canvas 绘制，没有外部图片素材；她会眨眼、呼吸，表情随
-回复变。文字以气泡形式出现，不做成聊天记录窗口。
+加一个插画风女生，端着杯热茶；会呼吸、眨眼，七个表情（普通 / 眨眼 / 开心 /
+害羞 / 无聊 / 生气 / 惊讶）随回复切换。人物和场景的美术源文件在 `art2d/`
+（SVG），用无头 Chrome 渲染成 `scene_bg.jpg` + `girl_*.webp` 打进 APK，改哪里都
+还是矢量。文字以气泡形式出现，不做成聊天记录窗口。
 
 - **10 种性格，不预设身份**：温柔 / 幽默 / 毒舌 / 高冷 / 粘人 / 理性 / 直率 /
   傲娇 / 元气 / 阴阳。每种性格自带一段「怎么说话」和一组语录，挑几个拼起来就是
