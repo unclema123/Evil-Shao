@@ -75,8 +75,9 @@ cd android
 gradle assembleDebug --offline   # JDK 21, Android SDK 35, Gradle 8.11
 ```
 
-No AndroidX, no third-party libraries: plain framework views plus a hand-written
-GLB renderer.
+No AndroidX, no third-party libraries: plain framework views and a hand-rolled
+canvas renderer. The old GLB / pig renderer (`PigRenderer.kt`, `GlbModel.kt`,
+`Mesh.kt`) is still in the tree but nothing in the 2D UI uses it.
 
 ### Traits: how the style is wired
 
@@ -114,8 +115,8 @@ A character is a selection of traits:
 - Removed: all persona packs derived from a real person's chat logs.
 - Added: multi-character support, a character editor, per-character learned
   lines, English product name.
-- Kept: 3D pig renderer, streaming replies, provider failover, web search,
-  local knowledge base.
+- Kept: streaming replies, provider failover, web search, local knowledge base.
+  The 3D pig renderer is left in the tree as unused code.
 
 ### Legacy
 
