@@ -10,13 +10,13 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- 第 2 层：她的气泡，往上提，给猪留出脸 -->
+    <!-- 第 2 层：她的气泡，放在下半屏（人像在上面，别糊住脸） -->
     <TextView
         android:id="@+id/bubble"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="62dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="122dp"
         android:background="@drawable/bubble_bg"
         android:elevation="3dp"
         android:maxWidth="280dp"
@@ -145,6 +145,11 @@
             android:text="@string/record" />
 
         <TextView
+            android:id="@+id/item_export"
+            style="@style/MenuRow"
+            android:text="@string/menu_export" />
+
+        <TextView
             android:id="@+id/item_learn"
             style="@style/MenuRow"
             android:text="@string/learn" />
@@ -158,6 +163,11 @@
             android:id="@+id/item_character"
             style="@style/MenuRow"
             android:text="@string/menu_character" />
+
+        <TextView
+            android:id="@+id/item_voice"
+            style="@style/MenuRow"
+            android:text="@string/menu_voice" />
 
         <TextView
             android:id="@+id/item_import"

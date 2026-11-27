@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import android.text.InputType
 import android.view.View
 import android.view.WindowInsets
@@ -38,6 +39,10 @@ class MainActivity : Activity() {
 
     /** 上次因为「拼音没选字」被拦的时间，2.5 秒内再点一次就放行 */
     private var pinyinWarnAt = 0L
+
+    private lateinit var bond: Bond
+    private var tts: TextToSpeech? = null
+    private var voiceOn = false
 
     /**
      * 不用系统输入法。
@@ -103,6 +108,18 @@ class MainActivity : Activity() {
 
         selfCorpus = SelfCorpus(this)
         selfMode = getSharedPreferences("input", MODE_PRIVATE).getBoolean("selfMode", false)
+
+        bond = Bond(this)
+        bond.onOpen()
+        voiceOn = getSharedPreferences("input", MODE_PRIVATE).getBoolean("voice", false)
+        tts = TextToSpeech(this) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                try {
+                    tts?.language = Locale.SIMPLIFIED_CHINESE
+                } catch (_: Exception) {
+                }
+            }
+        }
 
         // 业务逻辑全部委托给 ChatBrain；这里只负责把回调反映到界面上
         brain = ChatBrain(
@@ -176,6 +193,9 @@ class MainActivity : Activity() {
         menuBtn.setOnClickListener { toggleMenu() }
         scrim.setOnClickListener { closeMenu() }
         findViewById<TextView>(R.id.item_close).setOnClickListener { closeMenu() }
+        findViewById<TextView>(R.id.item_voice).setOnClickListener { toggleVoice() }
+        findViewById<TextView>(R.id.item_export).setOnClickListener { exportBackup() }
+        findViewById<TextView>(R.id.item_voice).text = if (voiceOn) "朗读 · 开" else "朗读"
         findViewById<TextView>(R.id.item_record).setOnClickListener {
             closeMenu()
             showHistory()
@@ -332,6 +352,7 @@ class MainActivity : Activity() {
         input.text.clear()
         chatLog.append("我", raw)
         style.observe(raw)
+        bond.onTalk()
         style.save()
         say("……")
 
@@ -433,6 +454,7 @@ class MainActivity : Activity() {
     private fun afterReply(reply: String) {
         chatLog.append("她", reply)
         say(reply)
+        if (voiceOn) speak(reply)
         val mood = MoodClassifier.of(reply)
         scene.showMood(mood)
         if (mood == SceneView.Mood.HAPPY) scene.wave(2000L)
@@ -733,8 +755,11 @@ class MainActivity : Activity() {
      */
     private fun showAbout() {
         val msg = SpannableStringBuilder()
-        msg.append("版本 2.4 · 温情陪护 Warm Companion\n\n")
-            .append("· 2D 温馨小屋 + 插画女生（七个表情），10 种性格挑几个拼成一个角色。\n")
+        msg.append("版本 2.6 · 温情陪护 Warm Companion\n\n")
+            .append("· ").append(bond.summary()).append("\n")
+            .append("· 暖阳画风人物（按你给的参考图），会呼吸、会眨眼，情绪用光影和腮红表现。\n")
+            .append("· 10 种性格挑几个拼成一个角色；「小暖」「邵珠佳」两个内置形象可直接切换。\n")
+            .append("· 菜单 →「朗读」用系统语音念回复；「导出备份」把聊天和人物存成 txt。\n")
             .append("· 菜单 →「人物」新建/编辑；「导入语录」选 txt，一行一句并进当前角色。\n")
             .append("· 可以偶尔用 [呲牙] [捂脸] 这种微信/QQ 文字表情；深夜语气会自动放软。\n")
             .append("· 每个人物是角色，不是真人：台词由你选的模型实时生成，偶尔抽风很正常。\n")
@@ -982,7 +1007,12 @@ class MainActivity : Activity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQ_QUOTES || resultCode != RESULT_OK) return
+        if (resultCode != RESULT_OK) return
+        if (requestCode == REQ_EXPORT) {
+            data?.data?.let { writeBackup(it) }
+            return
+        }
+        if (requestCode != REQ_QUOTES) return
         val uri = data?.data ?: return
         try {
             val raw = contentResolver.openInputStream(uri)
@@ -1284,6 +1314,12 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        try {
+            tts?.stop()
+            tts?.shutdown()
+        } catch (_: Exception) {
+        }
+        tts = null
         super.onDestroy()
         // 作废所有在途请求：Activity 都销毁了，回调再打到界面上就是崩
         if (::brain.isInitialized) brain.shutdown()
@@ -1301,8 +1337,71 @@ class MainActivity : Activity() {
         updateBadges()
     }
 
+    /** 朗读开关：用系统自带的 TTS，不联网也能念 */
+    private fun toggleVoice() {
+    voiceOn = !voiceOn
+    getSharedPreferences("input", MODE_PRIVATE).edit().putBoolean("voice", voiceOn).apply()
+    findViewById<TextView>(R.id.item_voice).text = if (voiceOn) "朗读 · 开" else "朗读"
+    Toast.makeText(
+        this,
+        if (voiceOn) "以后回复会自动念出来（用系统语音，离线可用）" else "已关闭朗读",
+        Toast.LENGTH_SHORT
+    ).show()
+    if (voiceOn) speak("好，我念给你听。")
+    }
+
+    private fun speak(text: String) {
+    val engine = tts ?: return
+    val clean = text.replace(Regex("\\[[^\\]]{1,8}\\]"), "").trim()
+    if (clean.isEmpty()) return
+    try {
+        engine.stop()
+        engine.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "r" + System.currentTimeMillis())
+    } catch (_: Exception) {
+    }
+    }
+
+    /** 导出：聊天记录 + 人物 + 陪伴记录，存成一个 txt */
+    private fun exportBackup() {
+    val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", Locale.CHINA).format(java.util.Date())
+    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TITLE, "warm-companion-$stamp.txt")
+    }
+    try {
+        startActivityForResult(intent, REQ_EXPORT)
+    } catch (e: Exception) {
+        Toast.makeText(this, "打不开保存对话框：" + e.message, Toast.LENGTH_LONG).show()
+    }
+    }
+
+    private fun writeBackup(uri: Uri) {
+    try {
+        val sb = StringBuilder()
+        sb.append("Warm Companion 备份\n")
+        sb.append("时间：")
+            .append(java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(java.util.Date()))
+            .append("\n")
+        sb.append(bond.summary()).append("\n\n")
+        sb.append("── 人物 ──\n")
+        for (c in chars.all()) {
+            sb.append(c.name).append("｜").append(c.tagline)
+                .append("｜语录 ").append(c.lines.size).append(" 句\n")
+        }
+        sb.append("\n── 聊天记录 ──\n")
+        val body = chatLog.asTextGrouped(names.me, names.her)
+        sb.append(if (body.isEmpty()) "（还没有记录）\n" else body)
+        contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { it.write(sb.toString()) }
+        Toast.makeText(this, "已导出", Toast.LENGTH_SHORT).show()
+    } catch (e: Exception) {
+        Toast.makeText(this, "写不进去：" + e.message, Toast.LENGTH_LONG).show()
+    }
+    }
+
     companion object {
-        private const val REQ_QUOTES = 1001
+    private const val REQ_QUOTES = 1001
+    private const val REQ_EXPORT = 1002
         const val REPO_URL = "https://github.com/unclema123/Evil-Shao"
     }
 }

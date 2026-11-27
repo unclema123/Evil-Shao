@@ -12,6 +12,8 @@
     <string name="menu_self">本人模式</string>
     <string name="menu_character">人物</string>
     <string name="menu_import">导入语录</string>
+    <string name="menu_voice">朗读</string>
+    <string name="menu_export">导出备份</string>
     <string name="menu_ime">输入法</string>
     <string name="menu_about">关于</string>
     <string name="menu_close">收起</string>

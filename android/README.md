@@ -1273,3 +1273,20 @@ APK versionName 2.4 / code 16。
 验证：编译通过；APK 1.4MB，含新背景与七张表情图；`SceneView` 坐标已按新贴图包围盒
 （191,220,698,1700）更新。仍未在真机点过（模拟器 adb 一直没恢复）。
 
+### 第二十一轮：人物改用参考图本体 + 朗读 / 陪伴记录 / 导出备份
+
+用户要求「严苛按我给的」那张参考图，并参考市面陪伴类 App 加功能。
+
+- 人物：`SceneView` 重写。不再叠 7 张表情贴图，改成一张 `scene_bg.jpg`
+  （参考图铺成 1080×1920 + 底部渐隐 + 柔光斑）。情绪用光影表达：
+  呼吸缩放、平静时按瞳孔坐标盖眼睑眨眼、害羞加腮红、生气压红边、无聊降饱和、
+  惊讶轻弹一下、开心暖光 + 星光。贴图按原分辨率解码（inSampleSize=1）。
+- 气泡从顶部挪到下半屏（`layout_marginBottom=122dp`），别糊住脸。
+- 新增「朗读」：系统 TextToSpeech（`Locale.SIMPLIFIED_CHINESE`），菜单里开关，
+  回复后自动念；正则去掉 `[呲牙]` 这类文字表情再念。
+- 新增「陪伴记录」：`Bond.kt`（原想叫 Companion，和 Kotlin 的 companion object 撞名）。
+  每天第一次打开天数 +1、好感度 +5；每说一句 +2，单日上限 +40。关于页显示。
+- 新增「导出备份」：`ACTION_CREATE_DOCUMENT` 存 txt（聊天记录 + 人物 + 陪伴记录）。
+- 版号 2.6（versionCode 18），APK 2.83MB，assets 只剩 scene_bg.jpg + traits.json。
+
+注意：这一轮没在真机上跑过（adb 一直连不上），只验证了编译、APK 结构和资源。

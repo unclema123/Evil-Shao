@@ -21,14 +21,19 @@ retrieves lines from — online as tone examples, offline as her actual reply.
 
 ### What it is
 
-- **Warm sunlit portrait of an illustrated girl.** A pale-yellow backdrop with a
-  low sun and soft bokeh; she has long wavy light-brown hair, a blue scarf and a
-  yellow top, and she is smiling. She breathes, blinks, and switches between
-  seven expressions (neutral / blink / happy / shy / bored / angry / surprised)
-  to match what she says.
-- **Two built-in faces.** 「小暖」 and 「邵珠佳」 share the same illustration; switch
+- **Warm sunlit portrait.** From 2.6 the character is the reference portrait the
+  user supplied (cropped to a 1080×1920 canvas, faded into cream at the bottom).
+  She breathes; she blinks when calm; happy / shy / bored / angry / surprised are
+  shown with light, blush, desaturation and a small pop instead of redrawn faces.
+- **Two built-in characters.** 「小暖」 and 「邵珠佳」 share the same portrait; switch
   between them in Menu → 人物. Appearance and personality are separate — the
   personality still comes from the traits you tick.
+- **Read replies aloud.** Menu → 朗读 turns on the system text-to-speech engine
+  (works offline, Chinese voice) so every reply is spoken.
+- **Company record.** Days together and an affinity counter (grows with each
+  message, capped per day) are kept locally and shown in 关于.
+- **Export a backup.** Menu → 导出备份 writes chat log + characters + company
+  record into a single `.txt` you choose the location for.
   The art is authored as SVG in [`art2d/scene.html`](art2d/scene.html) and
   rasterised into `scene_bg.jpg` + `girl_*.webp`; [`art2d/tools`](art2d/tools)
   regenerates them with a headless Chrome, so every shape stays editable.
@@ -111,7 +116,9 @@ A character is a selection of traits:
 ### Versus the old version
 
 - 2.5: repainted in a warm sunlit style from a reference the user supplied, and
-  added a second built-in character (邵珠佳). Both faces share one sprite set.
+  added a second built-in character (邵珠佳).
+- 2.6: switched the character to that reference portrait itself (exact look),
+  added text-to-speech, the company record and backup export.
 - Removed: all persona packs derived from a real person's chat logs.
 - Added: multi-character support, a character editor, per-character learned
   lines, English product name.
@@ -128,14 +135,17 @@ pig demo and are kept only for history.
 
 ### 这是什么
 
-一个 Android 上的「温情陪护」小工具：暖阳背景（淡黄渐变、低低的太阳、柔光斑）
-加一个插画风女生——长卷发、蓝围巾、黄 T 恤、笑着；会呼吸、眨眼，七个表情（普通 /
-眨眼 / 开心 / 害羞 / 无聊 / 生气 / 惊讶）随回复切换。人物和场景的美术源文件在 `art2d/`
+一个 Android 上的「温情陪护」小工具：人物从 2.6 起直接用你给的那张参考图
+（裁成 1080×1920、底部渐隐到奶油色，下半屏留给气泡）。会呼吸、平静时会眨眼，
+开心 / 害羞 / 无聊 / 生气 / 惊讶 用光、腮红、降饱和和一下轻弹来表现，而不是重画脸。人物和场景的美术源文件在 `art2d/`
 （SVG），用无头 Chrome 渲染成 `scene_bg.jpg` + `girl_*.webp` 打进 APK，改哪里都
 还是矢量。文字以气泡形式出现，不做成聊天记录窗口。
 
-- **两个内置形象**：「小暖」和「邵珠佳」，共用同一套暖阳插画（七个表情），
-  在「人物」菜单里直接切换；形象和性格是分开的，性格仍由你勾。
+- **两个内置形象**：「小暖」和「邵珠佳」，共用同一张人物图，在「人物」菜单里
+  直接切换；形象和性格是分开的，性格仍由你勾。
+- **朗读**：菜单 →「朗读」，用系统自带的中文语音把回复念出来（离线可用）。
+- **陪伴记录**：陪了多少天、好感度多少，只存本机，关于页能看到。
+- **导出备份**：菜单 →「导出备份」，把聊天记录、人物、陪伴记录存成一个 txt。
 - **10 种性格，不预设身份**：温柔 / 幽默 / 毒舌 / 高冷 / 粘人 / 理性 / 直率 /
   傲娇 / 元气 / 阴阳。每种性格自带一段「怎么说话」和一组语录，挑几个拼起来就是
   一个角色，不绑年龄、职业、名字。
@@ -164,7 +174,8 @@ pig demo and are kept only for history.
 2.0 起改名 **Warm Companion / 温情陪护**，删掉了之前按真人聊天记录整理的
 全部语录包。2.1 把「人物」拆成可勾选的性格（不再预设身份），2.2 换成 2D 场景，
 2.3 换成矢量插画女生 + 七个表情，2.4 把人物比例调得更像真人，2.5 按参考图重画成
-暖阳画风，并加入第二个内置形象「邵珠佳」。
+暖阳画风并加入第二个内置形象「邵珠佳」，2.6 直接改用那张参考图本身（一模一样），
+加了朗读、陪伴记录和导出备份。
 学习改成按角色分开的本人模式语料。
 
 ### 旧版
