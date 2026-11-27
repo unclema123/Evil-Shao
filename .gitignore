@@ -25,3 +25,4 @@ __pycache__/
 
 # 调试用的截图
 shot-now*.png
+tmp/

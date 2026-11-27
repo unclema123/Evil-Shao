@@ -146,6 +146,15 @@ class CharacterStore(context: Context) {
             extraStyle = "",
             greeting = "慢点说，我在听。",
             builtin = true
+        ),
+        compose(
+            id = "shaozhujia",
+            name = "邵珠佳",
+            traitIds = listOf("yuanqi", "wenrou"),
+            extraLines = emptyList(),
+            extraStyle = "",
+            greeting = "嗨，今天过得怎么样呀？",
+            builtin = true
         )
     )
 
