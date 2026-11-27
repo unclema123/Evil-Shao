@@ -19,11 +19,14 @@ retrieves lines from — online as tone examples, offline as her actual reply.
 
 ### What it is
 
-- **2D cozy room with an illustrated girl.** A warm little room — window,
-  curtains, bookshelf, plant, string lights — with a flat-illustration girl
-  holding a cup of tea. She breathes, blinks, and switches between seven
-  expressions (neutral / blink / happy / shy / bored / angry / surprised) to
-  match what she says.
+- **Warm sunlit portrait of an illustrated girl.** A pale-yellow backdrop with a
+  low sun and soft bokeh; she has long wavy light-brown hair, a blue scarf and a
+  yellow top, and she is smiling. She breathes, blinks, and switches between
+  seven expressions (neutral / blink / happy / shy / bored / angry / surprised)
+  to match what she says.
+- **Two built-in faces.** 「小暖」 and 「邵珠佳」 share the same illustration; switch
+  between them in Menu → 人物. Appearance and personality are separate — the
+  personality still comes from the traits you tick.
   The art is authored as SVG in [`art2d/scene.html`](art2d/scene.html) and
   rasterised into `scene_bg.jpg` + `girl_*.webp`; [`art2d/tools`](art2d/tools)
   regenerates them with a headless Chrome, so every shape stays editable.
@@ -104,6 +107,8 @@ A character is a selection of traits:
 
 ### Versus the old version
 
+- 2.5: repainted in a warm sunlit style from a reference the user supplied, and
+  added a second built-in character (邵珠佳). Both faces share one sprite set.
 - Removed: all persona packs derived from a real person's chat logs.
 - Added: multi-character support, a character editor, per-character learned
   lines, English product name.
@@ -120,9 +125,9 @@ pig demo and are kept only for history.
 
 ### 这是什么
 
-一个 Android 上的「温情陪护」小工具：2D 温馨小屋（窗、窗帘、书架、绿植、串灯）
-加一个插画风女生，端着杯热茶；会呼吸、眨眼，七个表情（普通 / 眨眼 / 开心 /
-害羞 / 无聊 / 生气 / 惊讶）随回复切换。人物和场景的美术源文件在 `art2d/`
+一个 Android 上的「温情陪护」小工具：暖阳背景（淡黄渐变、低低的太阳、柔光斑）
+加一个插画风女生——长卷发、蓝围巾、黄 T 恤、笑着；会呼吸、眨眼，七个表情（普通 /
+眨眼 / 开心 / 害羞 / 无聊 / 生气 / 惊讶）随回复切换。人物和场景的美术源文件在 `art2d/`
 （SVG），用无头 Chrome 渲染成 `scene_bg.jpg` + `girl_*.webp` 打进 APK，改哪里都
 还是矢量。文字以气泡形式出现，不做成聊天记录窗口。
 
@@ -155,7 +160,8 @@ pig demo and are kept only for history.
 
 2.0 起改名 **Warm Companion / 温情陪护**，删掉了之前按真人聊天记录整理的
 全部语录包。2.1 把「人物」拆成可勾选的性格（不再预设身份），2.2 换成 2D 场景，
-2.3 换成矢量插画女生 + 七个表情，2.4 把人物比例调得更像真人。
+2.3 换成矢量插画女生 + 七个表情，2.4 把人物比例调得更像真人，2.5 按参考图重画成
+暖阳画风，并加入第二个内置形象「邵珠佳」。
 学习改成按角色分开的本人模式语料。
 
 ### 旧版
