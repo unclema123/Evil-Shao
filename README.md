@@ -10,6 +10,8 @@ retrieves lines from — online as tone examples, offline as her actual reply.
 - Art source: [`art2d/scene.html`](art2d/scene.html) — the illustration is SVG,
   rasterised by [`art2d/tools`](art2d/tools) into the APK assets
 
+<a href="docs/screenshot.jpg"><img src="docs/screenshot.jpg" width="320" alt="Warm Companion 2.5 — 暖阳画风的女生"></a>
+
 中文说明在下面的「中文」一节。
 
 > Renamed from **Evil Shao / PigNpc**. The old persona packs are gone; the
